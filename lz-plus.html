@@ -342,6 +342,7 @@
 //  LZ-PLUS para TV
 //  Se maneja con las flechas del control remoto, OK (Enter) y Regresar.
 // =====================================================================
+const APP_VERSION = '__LZ_VERSION__'.indexOf('__') === 0 ? 'web' : '__LZ_VERSION__';
 const $ = (id) => document.getElementById(id);
 // Dentro de la app de Android TV existe window.LZ (reproductor nativo, salir, abrir en otra app)
 const NATIVE = !!(window.LZ && window.LZ.isNative && window.LZ.isNative());
@@ -2075,7 +2076,7 @@ function configureAddon(s) {
 // =====================================================================
 function buildSettings() {
   const v = $('v-ajustes'); v.replaceChildren();
-  const h = el('div', 'head'); h.append(el('h1', 'disp', 'Ajustes')); v.append(h);
+  const h = el('div', 'head'); h.append(el('h1', 'disp', 'Ajustes'), el('p', null, 'Versión ' + APP_VERSION + (NATIVE ? ' · Android TV' : ''))); v.append(h);
   if (S.pin && !unlocked) return lockScreen(v, 'Ajustes bloqueados');
   const w = el('div', 'wrap'); v.append(w);
   const chips = (opts, cur, set) => { const c = el('div', 'chips'); opts.forEach(([k, n]) => c.append(btn('chip' + (k === cur ? ' on' : ''), n, (e) => { set(k); c.querySelectorAll('.chip').forEach((x) => x.classList.toggle('on', x === e.currentTarget)); }))); return c; };

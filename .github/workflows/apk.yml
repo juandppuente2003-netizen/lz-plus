@@ -32,6 +32,7 @@ jobs:
         run: |
           npm install --no-save --no-audit --no-fund esbuild@0.28.2
           node tools/preparar-tv.js lz-plus.html android/app/src/main/assets/index.html
+          sed -i "s/__LZ_VERSION__/${{ github.run_number }}/g" android/app/src/main/assets/index.html
           curl -sSfL https://cdn.jsdelivr.net/npm/hls.js@1/dist/hls.min.js -o android/app/src/main/assets/hls.min.js
           sed -i 's#https://cdn.jsdelivr.net/npm/hls.js@1#hls.min.js#' android/app/src/main/assets/index.html
 
@@ -81,6 +82,7 @@ jobs:
         shell: bash
         run: |
           cp lz-plus.html lz-servidor.js windows/
+          sed -i "s/__LZ_VERSION__/${{ github.run_number }}/g" windows/lz-plus.html
           cd windows
           npm install --no-audit --no-fund
 
