@@ -5,7 +5,13 @@ import android.net.Uri;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
+import android.view.Gravity;
+import android.view.KeyEvent;
 import android.view.WindowManager;
+import android.widget.FrameLayout;
+import android.widget.TextView;
+import android.graphics.Color;
+import android.graphics.drawable.GradientDrawable;
 import android.widget.Toast;
 
 import androidx.media3.common.C;
@@ -43,6 +49,19 @@ public class PlayerActivity extends Activity {
     private long startMs = 0;
     private String audioLang = "es";
     private boolean failedAll = false;
+    private boolean isEp = false, ended = false, introSkipped = false, slept = false;
+    private long sleepAt = 0;
+    private TextView skip;
+    private final Runnable introCheck = new Runnable() {
+        public void run() {
+            if (player == null) return;
+            if (sleepAt > 0 && System.currentTimeMillis() > sleepAt) { slept = true; finish(); return; }   // temporizador para dormir
+            long p = player.getCurrentPosition();
+            boolean show = isEp && !introSkipped && player.isPlaying() && p > 10000 && p < 240000 && startMs < 60000;
+            skip.setVisibility(show ? android.view.View.VISIBLE : android.view.View.GONE);
+            handler.postDelayed(this, 1000);
+        }
+    };
     private final Handler handler = new Handler(Looper.getMainLooper());
     private final Runnable startWatchdog = new Runnable() {
         public void run() {
@@ -63,13 +82,28 @@ public class PlayerActivity extends Activity {
             startMs = d.optLong("start", 0) * 1000L;
             audioLang = d.optString("audioLang", "es");
             setTitle(d.optString("title", "LZ-PLUS"));
+            isEp = d.optBoolean("ep", false);
+            sleepAt = d.optLong("sleepAt", 0);
         } catch (Exception e) { opts = new JSONArray(); }
 
         view = new PlayerView(this);
         view.setKeepScreenOn(true);
         view.setShowSubtitleButton(true);
         view.setControllerShowTimeoutMs(4000);
-        setContentView(view);
+        FrameLayout root = new FrameLayout(this);
+        root.addView(view);
+        skip = new TextView(this);
+        skip.setText("OK  ·  Saltar intro  ⏭");
+        skip.setTextColor(Color.parseColor("#111111"));
+        skip.setTextSize(18);
+        skip.setPadding(36, 18, 36, 18);
+        GradientDrawable bg = new GradientDrawable(); bg.setColor(Color.parseColor("#F5B84B")); bg.setCornerRadius(60);
+        skip.setBackground(bg);
+        skip.setVisibility(android.view.View.GONE);
+        FrameLayout.LayoutParams lp = new FrameLayout.LayoutParams(FrameLayout.LayoutParams.WRAP_CONTENT, FrameLayout.LayoutParams.WRAP_CONTENT, Gravity.BOTTOM | Gravity.END);
+        lp.setMargins(0, 0, 64, 120);
+        root.addView(skip, lp);
+        setContentView(root);
 
         DefaultRenderersFactory renderers = new DefaultRenderersFactory(this)
                 .setEnableDecoderFallback(true)
@@ -87,9 +121,15 @@ public class PlayerActivity extends Activity {
 
             @Override
             public void onIsPlayingChanged(boolean isPlaying) { if (isPlaying) handler.removeCallbacks(startWatchdog); }
+
+            @Override
+            public void onPlaybackStateChanged(int state) {
+                if (state == Player.STATE_ENDED && !ended) { ended = true; finish(); }   // terminó: la app ofrece el siguiente episodio
+            }
         });
         view.requestFocus();
         playIndex(0);
+        handler.postDelayed(introCheck, 1000);
     }
 
     private void playIndex(int i) {
@@ -146,24 +186,46 @@ public class PlayerActivity extends Activity {
     }
 
     @Override
-    protected void onPause() {
-        super.onPause();
-        // Avisa a la app hasta dónde se vio (para "Continuar viendo")
-        if (player != null && !failedAll) {
-            android.content.Intent r = new android.content.Intent();
-            r.putExtra("pos", Math.max(0, player.getCurrentPosition() / 1000));
-            long d = player.getDuration();
-            r.putExtra("dur", d > 0 ? d / 1000 : 0);
-            r.putExtra("failed", failedAll);
-            setResult(RESULT_OK, r);
+    public boolean dispatchKeyEvent(KeyEvent e) {
+        // OK mientras se ve "Saltar intro": adelanta 85 segundos
+        int k = e.getKeyCode();
+        if (skip.getVisibility() == android.view.View.VISIBLE && !view.isControllerFullyVisible()
+                && (k == KeyEvent.KEYCODE_DPAD_CENTER || k == KeyEvent.KEYCODE_ENTER)) {
+            if (e.getAction() == KeyEvent.ACTION_UP && player != null) {
+                introSkipped = true; skip.setVisibility(android.view.View.GONE);
+                player.seekTo(player.getCurrentPosition() + 85000);
+                Toast.makeText(this, "Intro saltada", Toast.LENGTH_SHORT).show();
+            }
+            return true;
         }
+        return super.dispatchKeyEvent(e);
     }
+
+    private void putResult() {
+        // Avisa a la app hasta dónde se vio (para "Continuar viendo" y el siguiente episodio)
+        if (player == null || failedAll) return;
+        android.content.Intent r = new android.content.Intent();
+        long d = player.getDuration();
+        r.putExtra("dur", d > 0 ? d / 1000 : 0);
+        r.putExtra("pos", ended && d > 0 ? d / 1000 : Math.max(0, player.getCurrentPosition() / 1000));
+        r.putExtra("ended", ended);
+        r.putExtra("sleep", slept);
+        r.putExtra("failed", false);
+        setResult(RESULT_OK, r);
+    }
+
+    @Override
+    public void finish() { putResult(); super.finish(); }
+
+    @Override
+    protected void onPause() { super.onPause(); putResult(); }
 
     @Override
     protected void onStop() {
         super.onStop();
         handler.removeCallbacks(startWatchdog);
-        if (player != null) { player.release(); player = null; }
+        handler.removeCallbacks(introCheck);
+        if (player != null) { putResult(); player.release(); player = null; }
         finish();
     }
 }

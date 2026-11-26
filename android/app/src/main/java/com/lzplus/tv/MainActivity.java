@@ -13,6 +13,14 @@ import android.webkit.WebSettings;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
 import android.widget.Toast;
+import android.os.Build;
+import android.provider.Settings;
+import androidx.core.content.FileProvider;
+import java.io.File;
+import java.io.FileOutputStream;
+import java.io.InputStream;
+import java.net.HttpURLConnection;
+import java.net.URL;
 
 /**
  * Pantalla principal de LZ-PLUS para Android TV.
@@ -73,8 +81,9 @@ public class MainActivity extends Activity {
         super.onActivityResult(requestCode, resultCode, data);
         if (requestCode == 7 && data != null) {
             long pos = data.getLongExtra("pos", 0), dur = data.getLongExtra("dur", 0);
+            if (data.getBooleanExtra("sleep", false)) { finish(); return; }   // temporizador para dormir: se apaga la app
             if (data.getBooleanExtra("failed", false)) web.evaluateJavascript("window.lzFailed && lzFailed()", null);
-            else web.evaluateJavascript("window.lzProgress && lzProgress(" + pos + "," + dur + ")", null);
+            else web.evaluateJavascript("window.lzProgress && lzProgress(" + pos + "," + dur + "," + data.getBooleanExtra("ended", false) + ")", null);
         }
     }
 
@@ -86,6 +95,59 @@ public class MainActivity extends Activity {
 
     @Override
     protected void onDestroy() { web.destroy(); super.onDestroy(); }
+
+    private void js(final String code) {
+        runOnUiThread(new Runnable() { public void run() { web.evaluateJavascript(code, null); } });
+    }
+
+    private void downloadAndInstall(String url) {
+        try {
+            File dir = new File(getCacheDir(), "upd"); dir.mkdirs();
+            File out = new File(dir, "LZ-PLUS.apk");
+            HttpURLConnection c = null;
+            for (int i = 0; i < 6; i++) {   // sigue las redirecciones de GitHub
+                c = (HttpURLConnection) new URL(url).openConnection();
+                c.setInstanceFollowRedirects(false);
+                c.setConnectTimeout(15000); c.setReadTimeout(30000);
+                int code = c.getResponseCode();
+                if (code >= 300 && code < 400) { url = c.getHeaderField("Location"); c.disconnect(); continue; }
+                if (code != 200) throw new Exception("HTTP " + code);
+                break;
+            }
+            long total = c.getContentLength(), done = 0; int last = -1;
+            InputStream in = c.getInputStream(); FileOutputStream fo = new FileOutputStream(out);
+            byte[] buf = new byte[65536]; int n;
+            while ((n = in.read(buf)) > 0) {
+                fo.write(buf, 0, n); done += n;
+                int pct = total > 0 ? (int) (done * 100 / total) : -1;
+                if (pct != last && pct % 5 == 0) { last = pct; js("window.lzUpdProgress && lzUpdProgress(" + pct + ")"); }
+            }
+            fo.close(); in.close(); c.disconnect();
+            final File apk = out;
+            runOnUiThread(new Runnable() { public void run() { install(apk); } });
+        } catch (Exception e) {
+            js("window.lzUpdProgress && lzUpdProgress(-2)");
+        }
+    }
+
+    private void install(File apk) {
+        try {
+            if (Build.VERSION.SDK_INT >= 26 && !getPackageManager().canRequestPackageInstalls()) {
+                Toast.makeText(this, "Permite que LZ-PLUS instale apps y vuelve a intentar", Toast.LENGTH_LONG).show();
+                startActivity(new Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES, Uri.parse("package:" + getPackageName())));
+                js("window.lzUpdProgress && lzUpdProgress(-3)");
+                return;
+            }
+            Intent i = new Intent(Intent.ACTION_VIEW);
+            Uri u = Build.VERSION.SDK_INT >= 24 ? FileProvider.getUriForFile(this, getPackageName() + ".files", apk) : Uri.fromFile(apk);
+            i.setDataAndType(u, "application/vnd.android.package-archive");
+            i.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_ACTIVITY_NEW_TASK);
+            startActivity(i);
+            js("window.lzUpdProgress && lzUpdProgress(101)");
+        } catch (Exception e) {
+            js("window.lzUpdProgress && lzUpdProgress(-2)");
+        }
+    }
 
     private void openExternal(String url, String type) {
         try {
@@ -101,6 +163,12 @@ public class MainActivity extends Activity {
     private class Bridge {
         @JavascriptInterface
         public boolean isNative() { return true; }
+
+        /** Descarga la APK nueva y abre el instalador de Android */
+        @JavascriptInterface
+        public void update(final String url) {
+            new Thread(new Runnable() { public void run() { downloadAndInstall(url); } }).start();
+        }
 
         @JavascriptInterface
         public void exit() { runOnUiThread(new Runnable() { public void run() { finish(); } }); }

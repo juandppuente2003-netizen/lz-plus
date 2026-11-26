@@ -61,8 +61,9 @@ jobs:
         with:
           tag_name: latest
           target_commitish: ${{ github.sha }}
-          name: LZ-PLUS
+          name: LZ-PLUS v${{ github.run_number }}
           body: |
+            apk-version: ${{ github.run_number }}
             Android TV (app Downloader): https://github.com/${{ github.repository }}/releases/latest/download/LZ-PLUS.apk
             Windows: LZ-PLUS-Windows-instalador.exe (o la versión portátil)
           files: LZ-PLUS.apk
@@ -101,6 +102,12 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: latest
+          name: LZ-PLUS v${{ github.run_number }}
+          body: |
+            apk-version: ${{ github.run_number }}
+            win-version: ${{ github.run_number }}
+            Android TV (app Downloader): https://github.com/${{ github.repository }}/releases/latest/download/LZ-PLUS.apk
+            Windows: LZ-PLUS-Windows-instalador.exe (o la versión portátil)
           files: |
             windows/dist/LZ-PLUS-Windows-instalador.exe
             windows/dist/LZ-PLUS-Windows-portable.exe
