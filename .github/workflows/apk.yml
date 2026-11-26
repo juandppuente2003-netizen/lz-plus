@@ -111,3 +111,28 @@ jobs:
           files: |
             windows/dist/LZ-PLUS-Windows-instalador.exe
             windows/dist/LZ-PLUS-Windows-portable.exe
+
+  # Versión para iPhone (y cualquier celular): página instalable en GitHub Pages
+  web:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Armar la página
+        run: |
+          mkdir -p _site
+          sed "s/__LZ_VERSION__/${{ github.run_number }}/g" lz-plus.html > _site/index.html
+          cp web/* _site/
+          touch _site/.nojekyll
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+      - id: deploy
+        uses: actions/deploy-pages@v4
