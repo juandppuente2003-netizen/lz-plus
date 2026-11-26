@@ -49,7 +49,7 @@ public class PlayerActivity extends Activity {
     private long startMs = 0;
     private String audioLang = "es";
     private boolean failedAll = false;
-    private boolean isEp = false, ended = false, introSkipped = false, slept = false;
+    private boolean isEp = false, ended = false, introSkipped = false, slept = false, wantPick = false;
     private long sleepAt = 0;
     private TextView skip;
     private final Runnable introCheck = new Runnable() {
@@ -130,6 +130,7 @@ public class PlayerActivity extends Activity {
         view.requestFocus();
         playIndex(0);
         handler.postDelayed(introCheck, 1000);
+        Toast.makeText(this, "Botón ≡ o mantén OK: cambiar idioma o calidad", Toast.LENGTH_LONG).show();
     }
 
     private void playIndex(int i) {
@@ -189,6 +190,12 @@ public class PlayerActivity extends Activity {
     public boolean dispatchKeyEvent(KeyEvent e) {
         // OK mientras se ve "Saltar intro": adelanta 85 segundos
         int k = e.getKeyCode();
+        // Botón Menú (≡) o mantener OK: volver a la lista de idioma y calidad
+        boolean longOk = (k == KeyEvent.KEYCODE_DPAD_CENTER || k == KeyEvent.KEYCODE_ENTER) && e.getAction() == KeyEvent.ACTION_DOWN && e.getRepeatCount() == 8;
+        if (k == KeyEvent.KEYCODE_MENU || k == KeyEvent.KEYCODE_SETTINGS || k == KeyEvent.KEYCODE_INFO || longOk) {
+            if (e.getAction() == KeyEvent.ACTION_DOWN && (longOk || e.getRepeatCount() == 0)) { wantPick = true; finish(); }
+            return true;
+        }
         if (skip.getVisibility() == android.view.View.VISIBLE && !view.isControllerFullyVisible()
                 && (k == KeyEvent.KEYCODE_DPAD_CENTER || k == KeyEvent.KEYCODE_ENTER)) {
             if (e.getAction() == KeyEvent.ACTION_UP && player != null) {
@@ -210,6 +217,7 @@ public class PlayerActivity extends Activity {
         r.putExtra("pos", ended && d > 0 ? d / 1000 : Math.max(0, player.getCurrentPosition() / 1000));
         r.putExtra("ended", ended);
         r.putExtra("sleep", slept);
+        r.putExtra("pick", wantPick);
         r.putExtra("failed", false);
         setResult(RESULT_OK, r);
     }

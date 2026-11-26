@@ -261,6 +261,9 @@
   #gate .key.gok{background:#fff;color:#5B12B0;font-size:1.3rem}
   #gate .key.gok:focus{background:var(--grad);color:#fff}
   .glogo{width:70vw;max-width:26rem;height:auto;filter:drop-shadow(0 0 1.6rem rgba(163,59,255,.45))}
+  .optp{display:flex;flex-direction:column;gap:.7rem}
+  .optp .chips{flex-wrap:wrap}
+  .optl{display:flex;flex-direction:column;gap:.5rem;max-height:52vh;overflow:auto}
   #gate{position:fixed;top:0;right:0;bottom:0;left:0;z-index:80;background:radial-gradient(ellipse at 50% 30%,#2a0f4d,#07060E 68%);display:grid;place-items:center;padding:2rem}
   #gate .gbox{width:92vw;max-width:46rem;text-align:center;display:flex;flex-direction:column;gap:1.2rem;align-items:center}
   #gate .logo{width:5rem;height:5rem;font-size:2.2rem;border-radius:1.4rem}
@@ -1310,6 +1313,7 @@ async function openDetail(it) {
   play.dataset.auto = '1';
   btns.append(play);
   if (w && w.t > 20) btns.append(btn('btn', 'Desde el inicio', () => playVod(x, w.ep || x.firstEp, 0)));
+  btns.append(btn('btn', '🌐  Idioma y calidad', () => chooseAndPlay(x, w && (w.t > 20 || w.next) ? w.ep || x.firstEp : x.firstEp, w && w.t > 20 ? w.t : 0)));
   const lb = btn('btn', inLib(x) ? '✓  En mi lista' : '＋  Mi lista', () => { toggleLib(x); lb.textContent = inLib(x) ? '✓  En mi lista' : '＋  Mi lista'; });
   if (x.trailer) btns.append(btn('btn', 'Ver tráiler', () => playTrailer(x.trailer, x.title)));
   btns.append(lb);
@@ -1449,13 +1453,46 @@ let lastVod = null, vodSess = 0, vodOpts = [], vodFailed = new Set(), vodLabel =
 const withTimeout = (p, ms) => Promise.race([p, new Promise((_, r) => setTimeout(() => r(new Error('tiempo')), ms))]);
 // Primero las que el navegador abre mejor (mp4/m3u8); al final MKV, HEVC y http sin intermediario
 // Puntaje: menor = mejor. Prefiere Latino/Español, 1080p/720p, archivos ligeros y formatos fáciles
+// Idioma y calidad que trae cada opción (por el texto y las banderitas que ponen los complementos)
+const LANG_OPT = {lat: '🇲🇽 Latino', esp: '🇪🇸 España', es: 'Español', multi: 'Multi audio', eng: '🇺🇸 Inglés', otro: 'Idioma original'};
+function streamInfo(s) {
+  if (s._i) return s._i;
+  const d = ((s.name || '') + ' ' + (s.title || '') + ' ' + (s.description || '')), l = d.toLowerCase();
+  let lang = 'otro';
+  if (/latino|latam|\blat\b|🇲🇽|\bmx\b|m[eé]xico|hispano/.test(l)) lang = 'lat';
+  else if (/castellano|🇪🇸|españa|\bcast\b|\bspain\b/.test(l)) lang = 'esp';
+  else if (/español|espanol|spanish|\bspa\b|\besp\b/.test(l)) lang = 'es';
+  else if (/multi|dual/.test(l)) lang = 'multi';
+  else if (/english|ingl[eé]s|🇬🇧|🇺🇸|\beng?\b/.test(l)) lang = 'eng';
+  const q = /2160p|\b4k\b|uhd/.test(l) ? '4K' : /1080p/.test(l) ? '1080p' : /720p/.test(l) ? '720p' : /480p|360p|\bsd\b/.test(l) ? 'SD' : '';
+  const gb = parseFloat((l.match(/(\d+(?:[.,]\d+)?)\s*gb/) || [])[1] || 0) || (parseFloat((l.match(/(\d+(?:[.,]\d+)?)\s*mb/) || [])[1] || 0) / 1024);
+  return (s._i = {lang, q, gb});
+}
+const langPref = () => S.langPref || (S.audioEs === false ? 'any' : 'lat');
+function langBonus(lang) {
+  const p = langPref(); if (p === 'any') return 0;
+  if (p === 'lat') return {lat: -6, es: -4, multi: -3, esp: -2.5}[lang] || 0;
+  if (p === 'esp') return {esp: -6, es: -4, multi: -3, lat: -2.5}[lang] || 0;
+  if (p === 'eng') return {eng: -6, multi: -2}[lang] || 0;
+  return 0;
+}
+function qualBonus(q) {
+  const p = S.qPref || 'auto';
+  if (p === 'auto') return q === '1080p' ? -2 : q === '720p' ? -1.5 : q === 'SD' ? 1 : q === '4K' ? (NATIVE ? 1 : 3) : 0;
+  const order = {'4k': ['4K', '1080p', '720p', 'SD'], '1080': ['1080p', '720p', '4K', 'SD'], '720': ['720p', '1080p', 'SD', '4K']}[p] || [];
+  const i = order.indexOf(q); return i < 0 ? 0 : -3 + i * 1.2;
+}
+// Con "solo mi idioma", si hay opciones en tu idioma se quitan las demás
+function langFilter(list) {
+  if (!S.langOnly || langPref() === 'any') return list;
+  const want = {lat: ['lat', 'es', 'multi'], esp: ['esp', 'es', 'multi'], eng: ['eng', 'multi']}[langPref()] || [];
+  const f = list.filter((s) => want.includes(streamInfo(s).lang));
+  return f.length ? f : list;
+}
 function streamScore(s) {
   const u = (s.url || '').toLowerCase(), d = ((s.name || '') + ' ' + (s.title || '') + ' ' + (s.description || '')).toLowerCase();
-  const gb = parseFloat((d.match(/(\d+(?:\.\d+)?)\s*gb/) || [])[1] || 0);
-  let sc = 0;
-  if (/latino|lat\b|español|espanol|castellano|spanish|\bspa\b|\besp\b|dual/.test(d)) sc -= 4;
-  if (/1080p/.test(d)) sc -= 2; else if (/720p/.test(d)) sc -= 1.5; else if (/480p|360p/.test(d)) sc += 1;
-  if (/2160p|\b4k\b|uhd/.test(d)) sc += NATIVE ? 1 : 3;
+  const inf = streamInfo(s), gb = inf.gb;
+  let sc = langBonus(inf.lang) + qualBonus(inf.q);
   if (/\bcam\b|hdcam|telesync|\bts\b|camrip/.test(d)) sc += 6;
   if (gb > 15) sc += 2; else if (gb > 6) sc += 1;
   if (!NATIVE) {
@@ -1481,7 +1518,7 @@ function getStreams(a, type, id) {
 }
 function prefetchStreams(type, id) { if (id) streamAddons().forEach((a) => getStreams(a, type, id).catch(() => {})); }
 // Reproducir: empieza en cuanto encuentra la primera opción que funciona
-async function playVod(x, ep, startAt) {
+async function playVod(x, ep, startAt, pick) {
   lastVod = {x, ep};
   if (x.type === 'movie' || x.mt === 'movie') ep = null;
   const adds = streamAddons();
@@ -1493,7 +1530,7 @@ async function playVod(x, ep, startAt) {
   const {type, id} = vodId(x, ep);
   if (!id) return toast('Este título no tiene un código para buscar videos.');
   vodItem = {x, ep, intro: !!ep && !(startAt > 60)}; lastSaveT = 0; likeGenres(x);
-  if (NATIVE) return nativeVod(x, ep, adds, type, id, startAt);
+  if (NATIVE) return nativeVod(x, ep, adds, type, id, startAt, pick);
   const sess = ++vodSess;
   vodOpts = []; vodFailed = new Set(); vodLabel = x.title + (ep ? ' · T' + ep.s + ' E' + ep.e : '');
   if (hls) { hls.destroy(); hls = null; }
@@ -1524,26 +1561,36 @@ async function playVod(x, ep, startAt) {
     limit(() => probe(s._pu, /\.m3u8(\?|$)/i.test(s.url)), true).then((r) => { s._p = r; if (sess === vodSess) pump(); });
   };
   adds.forEach((a) => getStreams(a, type, id)
-    .then((list) => { if (sess !== vodSess) return; const add = list.filter(playable).map((s) => ({...s, addon: a.name})); add.forEach(check); vodOpts.push(...add); vodOpts.sort((p, q) => streamScore(p) - streamScore(q)); })
+    .then((list) => { if (sess !== vodSess) return; const add = list.filter(playable).map((s) => ({...s, addon: a.name})); add.forEach(check); vodOpts.push(...add); vodOpts.sort((p, q) => streamScore(p) - streamScore(q));
+      if (pick) { const i = vodOpts.findIndex((o) => o.url === pick.url); if (i > 0) vodOpts.unshift(vodOpts.splice(i, 1)[0]); if (i >= 0 && vodOpts[0]._p === 'pending') vodOpts[0]._p = 'unknown'; }
+      else if (S.langOnly) { const keep = new Set(langFilter(vodOpts)); if (keep.size < vodOpts.length) vodOpts = vodOpts.filter((o) => keep.has(o) || o === vodCur); } })
     .catch(() => {}).finally(() => { pending--; if (sess === vodSess) pump(); }));
   vodCtx = {type, id}; vodCur = null; vodInfo = null; vodSub = null; vodSubList = null; vodResume = startAt || 0;
   addSubtitles(vodCtx);
 }
 // En la TV: junta las opciones y las pasa al reproductor nativo (abre MKV, HEVC, AC3…)
-async function nativeVod(x, ep, adds, type, id, startAt) {
+let nativeLast = null;
+async function gatherOpts(adds, type, id, onFirst) {
+  const opts = [];
+  await new Promise((resolve) => {
+    let pending = adds.length, firstAt = 0;
+    const timer = setTimeout(resolve, 15000);
+    adds.forEach((a) => withTimeout(getStreams(a, type, id), 15000)
+      .then((list) => { list.filter((s) => /^https?:\/\//.test(s.url || '')).forEach((s) => opts.push({...s, addon: a.name})); opts.sort((p, q) => streamScore(p) - streamScore(q));
+        if (opts.length && !firstAt) { firstAt = Date.now(); if (onFirst) onFirst(); setTimeout(resolve, 2500); } })
+      .catch(() => {}).finally(() => { if (--pending === 0) { clearTimeout(timer); resolve(); } }));
+  });
+  return opts;
+}
+async function nativeVod(x, ep, adds, type, id, startAt, pick) {
   const label = x.title + (ep ? ' · T' + ep.s + ' E' + ep.e : '');
   const body = el('div'); body.append(el('div', 'spin'), el('p', 'note', 'Buscando video en tus complementos…'));
   openPick(label, [body]);
-  const sess = ++vodSess, opts = [];
-  let firstAt = 0;
-  await new Promise((resolve) => {
-    let pending = adds.length;
-    const timer = setTimeout(resolve, 15000);
-    adds.forEach((a) => withTimeout(getStreams(a, type, id), 15000)
-      .then((list) => { list.filter((s) => /^https?:\/\//.test(s.url || '')).forEach((s) => opts.push(s)); opts.sort((p, q) => streamScore(p) - streamScore(q));
-        if (opts.length && !firstAt) { firstAt = Date.now(); setTimeout(resolve, 2500); } })   // con la primera respuesta, espera 2.5 s más y arranca
-      .catch(() => {}).finally(() => { if (--pending === 0) { clearTimeout(timer); resolve(); } }));
-  });
+  const sess = ++vodSess;
+  let opts = pick && nativeLast && nativeLast.id === id ? nativeLast.opts.slice() : await gatherOpts(adds, type, id);
+  nativeLast = {id, type, opts: opts.slice(), x, ep};
+  if (pick) { const i = opts.findIndex((o) => o.url === pick.url); if (i > 0) opts.unshift(opts.splice(i, 1)[0]); }
+  else if (S.langOnly) opts = langFilter(opts);
   if (sess !== vodSess || $('pick').hidden) return;
   if (!opts.length) { body.replaceChildren(el('p', 'note', 'Tus complementos no encontraron video para este título.')); return; }
   let sub = '', subLang = '';
@@ -1558,6 +1605,27 @@ async function nativeVod(x, ep, adds, type, id, startAt) {
     const h = s.behaviorHints?.proxyHeaders?.request || {};
     return {url: s.url, ref: h.Referer || h.referer || '', ua: h['User-Agent'] || h['user-agent'] || ''};
   })}));
+}
+window.lzPick = (pos) => {
+  if (!nativeLast) return;
+  const {opts, x, ep} = nativeLast;
+  openPick('Idioma y calidad', [el('p', 'note', 'Elige otra versión. Sigue desde donde ibas.'), optPicker(opts, {onPick: (s) => { closePick(); playVod(x, ep, pos, s); }})]);
+  setTimeout(() => focusEl($('pick').querySelector('.chip.on') || $('pick').querySelector('.opt')), 60);
+};
+// Elegir idioma y calidad antes de reproducir (botón en la ficha)
+async function chooseAndPlay(x, ep, startAt) {
+  if (x.type === 'movie' || x.mt === 'movie') ep = null;
+  const adds = streamAddons(); if (!adds.length) return playVod(x, ep, startAt);
+  const {type, id} = vodId(x, ep); if (!id) return toast('Este título no tiene un código para buscar videos.');
+  const label = x.title + (ep ? ' · T' + ep.s + ' E' + ep.e : '');
+  const body = el('div'); body.append(el('div', 'spin'), el('p', 'note', 'Buscando versiones en tus complementos…'));
+  openPick(label, [body]);
+  const opts = (await gatherOpts(adds, type, id)).filter((s) => NATIVE || playable(s));
+  if ($('pick').hidden) return;
+  if (!opts.length) { body.replaceChildren(el('p', 'note', 'Tus complementos no encontraron video para este título.')); return; }
+  if (NATIVE) nativeLast = {id, type, opts: opts.slice(), x, ep};
+  body.replaceChildren(optPicker(opts, {onPick: (s) => { closePick(); playVod(x, ep, startAt, s); }}));
+  setTimeout(() => focusEl(body.querySelector('.opt') || body.querySelector('.chip')), 40);
 }
 // Marca el título como "no se puede ver" y quita su carátula de las filas
 function markDead(x) {
@@ -1577,7 +1645,43 @@ function vodAllFailed() {
     : 'Ninguna de las ' + vodOpts.length + ' opciones abrió en el navegador.' + (PROXY ? ' Puede que vengan en un formato que el navegador no lee (MKV o HEVC). Ábrela en VLC.' : ' Conecta el servidor intermedio (Ajustes) o ábrela en VLC.'), b);
   setTimeout(() => focusEl(b[0]), 50);
 }
+// Lista de opciones con filtros de idioma y calidad (PC y TV)
+function optPicker(opts, {cur, failed, onPick}) {
+  const optF = {lang: '', q: ''};
+  const wrap = el('div', 'optp'), fl = el('div', 'chips'), fq = el('div', 'chips'), list = el('div', 'optl');
+  const count = (k, v) => opts.filter((s) => streamInfo(s)[k] === v).length;
+  const langs = ['lat', 'esp', 'es', 'multi', 'eng', 'otro'].filter((k) => count('lang', k));
+  const quals = ['4K', '1080p', '720p', 'SD'].filter((k) => count('q', k));
+  if (optF.lang && !langs.includes(optF.lang)) optF.lang = '';
+  if (optF.q && !quals.includes(optF.q)) optF.q = '';
+  const draw = () => {
+    fl.replaceChildren(); fq.replaceChildren();
+    [['', 'Todos los idiomas'], ...langs.map((k) => [k, LANG_OPT[k] + ' (' + count('lang', k) + ')'])].forEach(([k, n]) => fl.append(btn('chip' + (optF.lang === k ? ' on' : ''), n, () => { optF.lang = k; draw(); focusEl(fl.querySelector('.chip.on')); })));
+    if (quals.length > 1) [['', 'Toda calidad'], ...quals.map((k) => [k, k + ' (' + count('q', k) + ')'])].forEach(([k, n]) => fq.append(btn('chip' + (optF.q === k ? ' on' : ''), n, () => { optF.q = k; draw(); focusEl(fq.querySelector('.chip.on')); })));
+    list.replaceChildren();
+    const shown = opts.filter((s) => (!optF.lang || streamInfo(s).lang === optF.lang) && (!optF.q || streamInfo(s).q === optF.q));
+    if (!shown.length) list.append(el('p', 'note', 'No hay opciones con ese filtro.'));
+    shown.slice(0, 60).forEach((s) => {
+      const inf = streamInfo(s), o = btn('opt' + (s === cur ? ' cur' : '')), tx = el('div');
+      const top = [LANG_OPT[inf.lang], inf.q || 'Calidad ?', inf.gb ? (inf.gb >= 1 ? inf.gb.toFixed(1) + ' GB' : Math.round(inf.gb * 1024) + ' MB') : ''].filter(Boolean).join('  ·  ');
+      tx.append(el('div', null, top + (s === cur ? '  ·  viendo ahora' : '')), el('small', null, ((s.addon ? s.addon + ' · ' : '') + (s.title || s.name || '')).replace(/\n/g, ' · ').slice(0, 150)));
+      o.append(tx, el('span', null, failed && failed.has(s) ? '✗' : s === cur ? '✓' : '▶'));
+      o.onclick = () => onPick(s);
+      list.append(o);
+    });
+    if (shown.length > 60) list.append(el('p', 'note', 'Se muestran 60 de ' + shown.length + '. Usa los filtros.'));
+  };
+  draw();
+  wrap.append(fl, fq, list);
+  return wrap;
+}
 function openVodPick() {
+  if (vodOpts.length) {
+    openPick('Opciones de video', [optPicker(vodOpts, {cur: vodCur, failed: vodFailed, onPick: (s) => { closePick(); vodResume = vodCur ? curTime() : 0; const sess = ++vodSess; vodFailed.delete(s); msg('Abriendo ' + (LANG_OPT[streamInfo(s).lang] || '') + ' ' + streamInfo(s).q + '…', null, true);
+      playStream(s, sess).then((ok) => { if (sess === vodSess && !ok) { vodFailed.add(s); vodAllFailed(); } }); }})]);
+    setTimeout(() => focusEl($('pick').querySelector('.opt') || $('pick').querySelector('.chip')), 40);
+    return;
+  }
   const body = el('div'); body.style.cssText = 'display:flex;flex-direction:column;gap:.5rem';
   vodOpts.forEach((s, i) => {
     const o = btn('opt'); const tx = el('div');
@@ -1659,16 +1763,11 @@ function openVodMenu() {
     auds.forEach((a, i) => c2.append(btn('chip' + (i === cur ? ' on' : ''), audioName(a), () => { closePick(); vodFF ? ffReload(curTime(), i) : toFF(i); toast('Audio: ' + audioName(a)); })));
     s2.append(c2); sections.push(s2);
   }
-  // Calidad / fuente
-  const s3 = el('div', 'msec'); s3.append(el('h3', null, 'Calidad y fuente'));
-  vodOpts.forEach((s, i) => {
-    const {q, extra} = qLabel(s);
-    const o = btn('opt' + (s === vodCur ? ' cur' : '')); const tx = el('div'); tx.append(el('div', null, q + (s === vodCur ? '  ·  viendo ahora' : '')), el('small', null, extra || (s.name || '').replace(/\n/g, ' ')));
-    o.append(tx, el('span', null, vodFailed.has(s) ? '✗' : s === vodCur ? '✓' : '▶'));
-    o.onclick = () => { closePick(); if (s === vodCur) return; vodResume = curTime(); const sess = ++vodSess; vodFailed.delete(s); msg('Cambiando a ' + q + '…', null, true);
-      playStream(s, sess).then((ok) => { if (sess === vodSess && !ok) { vodFailed.add(s); vodAllFailed(); } }); };
-    s3.append(o);
-  });
+  // Idioma, calidad y fuente
+  const s3 = el('div', 'msec'); s3.append(el('h3', null, 'Idioma y calidad'));
+  s3.append(optPicker(vodOpts, {cur: vodCur, failed: vodFailed, onPick: (s) => { closePick(); if (s === vodCur) return; vodResume = curTime(); const sess = ++vodSess; vodFailed.delete(s);
+    msg('Cambiando a ' + (LANG_OPT[streamInfo(s).lang] || '') + ' ' + streamInfo(s).q + '…', null, true);
+    playStream(s, sess).then((ok) => { if (sess === vodSess && !ok) { vodFailed.add(s); vodAllFailed(); } }); }}));
   sections.push(s3);
   sections.push(sleepChips(closePick));
   openPick('Opciones', sections);
@@ -2511,6 +2610,12 @@ function buildSettings() {
   const bPf = el('div', 'box'); bPf.append(el('h2', 'disp', 'Perfiles'), el('p', 'note', 'Perfil actual: ' + curProf().name + (isKids() ? ' (Niños)' : '') + '. Cada perfil tiene su propio historial, Mi lista y recomendaciones.'));
   const pfb = el('div', 'btns'); pfb.append(btn('btn pri', 'Cambiar o agregar perfil', () => pickProfile(false))); bPf.append(pfb); w.append(bPf);
   const bSl = el('div', 'box'); bSl.append(el('h2', 'disp', 'Temporizador para dormir'), sleepChips(() => buildSettings()), el('p', 'note', 'Al terminar el tiempo pregunta si sigues viendo; si nadie contesta, se apaga. También está en el menú del reproductor.')); w.append(bSl);
+  const bLq = el('div', 'box'); bLq.append(el('h2', 'disp', 'Idioma y calidad de películas y series'),
+    el('p', 'note', 'La app elige sola la mejor versión con este idioma y calidad. En la ficha de cada título está “Idioma y calidad” para escoger otra.'),
+    chips([['lat', '🇲🇽 Latino'], ['esp', '🇪🇸 España'], ['eng', '🇺🇸 Inglés'], ['any', 'Sin preferencia']], langPref(), (k) => { S.langPref = k; S.audioEs = k !== 'any' && k !== 'eng'; save(); toast('Guardado'); }),
+    chips([['auto', 'Calidad automática'], ['1080', '1080p'], ['720', '720p (más ligero)'], ['4k', '4K']], S.qPref || 'auto', (k) => { S.qPref = k; save(); toast('Guardado'); }),
+    chips([['no', 'Si no hay en mi idioma, usar otro'], ['si', 'Solo mi idioma cuando exista']], S.langOnly ? 'si' : 'no', (k) => { S.langOnly = k === 'si'; save(); toast('Guardado'); }));
+  w.append(bLq);
   const bSt = el('div', 'box'); bSt.append(el('h2', 'disp', 'Al abrir la app'),
     chips([['prev', 'Último canal en la vista previa'], ['full', 'Último canal en pantalla completa']], S.startFull ? 'full' : 'prev', (k) => { S.startFull = k === 'full'; save(); toast('Guardado'); }),
     el('p', 'note', 'La app siempre arranca con el último canal que viste.'));
