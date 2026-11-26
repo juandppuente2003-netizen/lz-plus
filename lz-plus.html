@@ -11,7 +11,7 @@
   :root{--bg:#06080F;--rail:#0A0E18;--card:#121828;--card2:#1A2238;--line:#1E2740;--tx:#F3F5FA;--mut:#9AA4BA;--accent:#F5B84B;--ok:#6EE7A0;--bad:#FF8A7A}
   *{box-sizing:border-box}
   [hidden]{display:none!important}
-  html{font-size:calc(clamp(12px,.95vw,26px) * var(--ui,1))}
+  html{font-size:calc(max(8px, min(.95vw, 1.69vh)) * var(--ui,1))}
   body{padding:var(--safe,0)}
   #app{height:calc(100vh - 2 * var(--safe,0px)) !important}
   body{margin:0;background:var(--bg);color:var(--tx);font-family:Manrope,system-ui,sans-serif;overflow:hidden}
@@ -192,6 +192,12 @@
   .panel h3{margin:0 .6rem;font-size:2rem}
   .plist{overflow-y:auto;display:flex;flex-direction:column;gap:.3rem;padding:.2rem}
   .plist::-webkit-scrollbar{width:0}
+  .panel.wcats{width:58rem;max-width:96vw}
+  .pcols{display:flex;gap:1rem;flex:1;min-height:0}
+  .pcols>.plist{flex:1;min-width:0}
+  .pcats{flex:0 0 19rem !important;border-right:1px solid rgba(255,255,255,.08);padding-right:.6rem}
+  .pcats[hidden]{display:none}
+  .pcats .gbtn span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 
   /* ---------- Ficha ---------- */
   .layer{position:fixed;inset:0;z-index:40;background:var(--bg);overflow-y:auto;overflow-x:hidden}
@@ -235,6 +241,11 @@
   .caret{width:.15rem;height:2rem;background:var(--accent);animation:bl 1s steps(1) infinite}
   @keyframes bl{50%{opacity:0}}
   .search .right{flex:1 1 30rem;min-width:0;display:flex;flex-direction:column;gap:1rem}
+  .search.closed .left{flex-direction:row;align-items:center}
+  .search.closed{flex-direction:column;gap:1rem}
+  .qbox[role=button]{cursor:pointer;border-radius:.6rem;padding:.3rem .8rem}
+  .qbox[role=button]:focus{outline:.22rem solid var(--accent)}
+  .kb .key.go{background:var(--accent);color:#111}
 
   /* ---------- Servidores y ajustes ---------- */
   .wrap{padding:0 3rem;display:flex;flex-direction:column;gap:1.6rem;max-width:90rem}
@@ -305,7 +316,7 @@
               <div class="pv-msg" id="pvMsg">Elige un canal</div>
               <div class="osd" id="osd"><span class="lg" id="osdLogo"></span><div><div class="num" id="osdNum"></div><h2 class="disp" id="osdName"></h2><p id="osdInfo"></p></div></div>
               <div class="hint" id="hint"></div>
-              <div class="panel" id="panel" hidden><h3 class="disp" id="panelTitle">Canales</h3><div class="plist" id="plist"></div></div>
+              <div class="panel" id="panel" hidden><h3 class="disp" id="panelTitle">Canales</h3><div class="pcols"><div class="plist pcats" id="pcats"></div><div class="plist" id="plist"></div></div></div>
               <div class="pv-top"><button class="btn sm" id="pvList" type="button">☰ Canales</button><button class="btn sm" id="pvClose" type="button">✕ Salir</button></div>
             </div>
             <div class="tvname" id="tvName"></div>
@@ -527,7 +538,7 @@ const filterOn = () => S.onlyAvail !== false && streamAddons().length > 0;
 const queue = []; let running = 0;
 // hi = prioridad (lo que estás reproduciendo); lo demás espera mientras ves una ficha o un video
 function limit(fn, hi) { return new Promise((res, rej) => { const job = [fn, res, rej, hi]; hi ? queue.unshift(job) : queue.push(job); pump(); }); }
-function pump() { const busy = !$('det').hidden || (typeof isFull === 'function' && isFull()); while (running < (NATIVE ? 2 : 6) + (busy ? 4 : 0) && queue.length && (!busy || queue[0][3])) { const [fn, res, rej] = queue.shift(); running++; fn().then(res, rej).finally(() => { running--; pump(); }); } }
+function pump() { const busy = !$('det').hidden || (typeof isFull === 'function' && isFull()); while (running < (NATIVE ? 2 : 5) + (busy ? 4 : 0) && queue.length && (!busy || queue[0][3])) { const [fn, res, rej] = queue.shift(); running++; fn().then(res, rej).finally(() => { running--; pump(); }); } }
 const playable = (s) => /^https?:\/\//.test(s.url || '') && (PROXY || !s.behaviorHints?.proxyHeaders?.request);
 async function checkId(it) {
   const series = it.type !== 'movie' && it.mt !== 'movie' && it.stype !== 'movie';
@@ -551,9 +562,21 @@ async function isAvailable(it) {
     const x = await withTimeout(checkId(it), 10000);
     if (!x?.id) ok = false;
     else {
-      const res = await Promise.allSettled(streamAddons().map((a) => withTimeout(getStreams(a, x.type, x.id), 15000).then((l) => l.some(playable))));
-      if (res.some((r) => r.status === 'fulfilled' && r.value)) ok = true;
-      else if (res.some((r) => r.status === 'fulfilled')) ok = false;
+      const res = await Promise.allSettled(streamAddons().map((a) => withTimeout(getStreams(a, x.type, x.id), 15000)));
+      const got = res.filter((r) => r.status === 'fulfilled');
+      const cand = got.flatMap((r) => r.value.filter(playable)).sort((p, q) => streamScore(p) - streamScore(q));
+      if (!cand.length) ok = got.length ? false : null;
+      else if (!(NATIVE || PROXY)) ok = true;   // sin forma de revisar el link desde aquí: se confía en el complemento
+      else {
+        // Revisión ligera: solo las 2 mejores opciones, unos bytes de cada una
+        ok = null;
+        for (const s of cand.slice(0, 2)) {
+          const hd = s.behaviorHints?.proxyHeaders?.request || {};
+          const st = await probe(PROXY && !NATIVE ? px(s.url, {ref: hd.Referer, ua: hd['User-Agent']}) : s.url, /\.m3u8(\?|$)/i.test(s.url));
+          if (st === 'ok' || st === 'unknown') { ok = true; break; }
+          ok = false;
+        }
+      }
     }
   } catch {}
   if (ok !== null) { AV[key] = {ok, t: Date.now()}; saveAV(); }
@@ -566,6 +589,8 @@ function fillFiltered(row, items, mk, spot, firstToSpot) {
   const cards = items.map((it) => mk(it));
   row._strip.replaceChildren(...cards);
   if (firstToSpot && spot && (!spot._it || spot._it._placeholder)) setSpot(spot, items[0], true);
+  const ae = document.activeElement;
+  if (row.closest('.view.on') && $('det').hidden && !isFull() && $('pick').hidden && (pendingFocus === view || !ae || ae === document.body) && (!ae || ae === document.body || ae.closest('#rail') || ae.closest('.spot'))) { pendingFocus = null; focusEl(cards[0]); }
   let done = 0, yes = 0;
   const upd = () => { note.textContent = done < items.length ? 'Revisando cuáles se pueden ver… ' + done + '/' + items.length : yes + (yes === 1 ? ' disponible' : ' disponibles'); };
   upd();
@@ -619,8 +644,10 @@ function nav(dir) {
   if (cur.closest('#rail') && dir === 'right') { const v = $('v-' + view); const last = v && v._last; focusEl(last && visible(last) && v.contains(last) ? last : firstContent(list)); return; }
   const r = cur.getBoundingClientRect(), cx = r.left + r.width / 2, cy = r.top + r.height / 2;
   let best = null, bs = Infinity;
+  const inRail = !!cur.closest('#rail');
   for (const e of list) {
     if (e === cur || e.contains(cur)) continue;
+    if (!inRail && (dir === 'up' || dir === 'down') && e.closest('#rail')) continue;
     const q = e.getBoundingClientRect(), ex = q.left + q.width / 2, ey = q.top + q.height / 2;
     let main, cross;
     if (dir === 'right') { if (ex <= cx + 2 || q.left < r.left + 2) continue; main = Math.max(0, q.left - r.right); cross = gap(q.top, q.bottom, r.top, r.bottom); }
@@ -654,7 +681,8 @@ document.addEventListener('keydown', (e) => {
   if (k === 'Backspace' && view === 'buscar' && query && !e.target.closest?.('#pick,#det') && !isText(e.target) && !isFull()) { e.preventDefault(); typeKey('\b'); return; }
   if (back) { e.preventDefault(); goBack(); return; }
   if (isFull() && $('panel').hidden && $('pick').hidden && playerKey(e)) { e.preventDefault(); return; }
-  if (view === 'buscar' && !isFull() && $('det').hidden && $('pick').hidden && !isText(e.target) && /^[a-zñ0-9 ]$/i.test(k) && !e.ctrlKey && !e.metaKey) { typeKey(k); e.preventDefault(); return; }
+  if (view === 'buscar' && !isFull() && $('det').hidden && $('pick').hidden && !isText(e.target) && /^[a-zñ0-9 ]$/i.test(k) && !e.ctrlKey && !e.metaKey) { if ($('kbd') && $('kbd').hidden) showKb(true); typeKey(k); e.preventDefault(); return; }
+  if (view === 'buscar' && k === 'Enter' && e.target && e.target.closest && e.target.closest('#kbd') && !e.target.classList.contains('key')) { e.preventDefault(); doSearch(); return; }
   const dir = {ArrowUp: 'up', ArrowDown: 'down', ArrowLeft: 'left', ArrowRight: 'right'}[k];
   if (!dir) return;
   if (isText(e.target)) { const t = e.target; if (dir === 'left' && t.selectionStart > 0) return; if (dir === 'right' && t.selectionEnd < t.value.length) return; }
@@ -674,7 +702,7 @@ window.lzBack = () => goBack();
 // =====================================================================
 //  Secciones
 // =====================================================================
-let view = 'vivo';
+let view = 'vivo', pendingFocus = null;
 const built = {};
 function go(v, focus = false) {
   if (v === 'vivo' || view === 'vivo') { if (!isFull() && pvMode === 'live' && v !== 'vivo') stopPlayback(); }
@@ -683,7 +711,7 @@ function go(v, focus = false) {
   document.querySelectorAll('.view').forEach((s) => s.classList.toggle('on', s.id === 'v-' + v));
   $('main').scrollTop = 0;
   if (!built[v] || v === 'servidores' || v === 'ajustes') { built[v] = true; ({inicio: buildHome, kids: () => buildCatalog('kids'), buscar: buildSearch, vivo: buildLive, peliculas: () => buildCatalog('peliculas'), series: () => buildCatalog('series'), anime: () => buildCatalog('anime'), servidores: buildServers, ajustes: buildSettings})[v](); }
-  if (focus) setTimeout(() => focusEl(firstContent(cands())), 60);
+  if (focus) { pendingFocus = v; setTimeout(() => { const f = firstContent(cands()); if (f && !f.closest('#rail') && !f.closest('.topbar')) { pendingFocus = null; focusEl(f); } }, 80); }
 }
 document.querySelectorAll('.nav').forEach((n) => { n.onclick = () => go(n.dataset.view, true); });
 document.querySelectorAll('[data-go]').forEach((n) => { n.onclick = () => go(n.dataset.go, true); });
@@ -705,7 +733,7 @@ document.addEventListener('click', () => { if (video.muted) { video.muted = fals
 // =====================================================================
 const useTmdb = () => !!S.tmdb;
 const T = (p, extra = '') => TMDB + p + (p.includes('?') ? '&' : '?') + 'api_key=' + encodeURIComponent(S.tmdb) + '&language=' + S.lang + extra;
-const IMG = (p, s = 'w342') => p ? 'https://image.tmdb.org/t/p/' + s + p : null;
+const IMG = (p, s = 'w342') => p ? 'https://image.tmdb.org/t/p/' + (NATIVE ? ({w342: 'w185', w1280: 'w780', w780: 'w780', w300: 'w185'}[s] || s) : s) + p : null;
 let tmdbGen = {};
 async function loadTmdbGenres() {
   if (!useTmdb()) return;
@@ -851,7 +879,7 @@ window.lzProgress = (pos, dur) => { if (!vodItem) return; const k = keyOf(vodIte
   save(); built.inicio = false; if (view === 'inicio' && $('det').hidden) go('inicio'); };
 
 function mediaCard(it, spot) {
-  const b = el('button', 'card'); b.type = 'button';
+  const b = el('button', 'card'); b.type = 'button'; b._key = it.src + ':' + it.id;
   const pi = el('div', 'pi');
   pi.append(img(it.poster, '', () => pi.replaceChildren(el('div', 'ph', it.title))));
   if (it.rating) pi.append(el('span', 'badge-r', '★ ' + it.rating));
@@ -889,7 +917,10 @@ async function fillRow(row, loader, spot, firstToSpot) {
     if (filterOn()) { fillFiltered(row, items, (it) => mediaCard(it, spot), spot, firstToSpot); return items; }
     row._strip.replaceChildren(...items.map((it) => mediaCard(it, spot)));
     if (firstToSpot && spot && !spot._it) setSpot(spot, items[0], true);
-    if (firstToSpot && (!document.activeElement || document.activeElement === document.body) && row.closest('.view.on') && $('det').hidden && !isFull()) focusEl(row._strip.firstChild);
+    const ae = document.activeElement;
+    if (row.closest('.view.on') && $('det').hidden && !isFull() && $('pick').hidden && (pendingFocus === view || !ae || ae === document.body) && (!ae || ae === document.body || ae.closest('#rail') || ae.closest('.spot'))) {
+      const first = row._strip.querySelector('.card:not(.sk)'); if (first) { pendingFocus = null; focusEl(first); }
+    }
     return items;
   } catch (e) {
     row._strip.replaceChildren(el('p', 'empty', e.status === 401 ? 'La clave de TMDB no es válida. Revísala en Ajustes.' : 'No se pudo cargar. Revisa tu conexión a internet.'));
@@ -941,9 +972,15 @@ function buildSearch() {
   const qb = el('div', 'qbox'); qb.id = 'qbox';
   const kb = el('div', 'kb');
   'abcdefghijklmnñopqrstuvwxyz1234567890'.split('').forEach((ch) => { const k = btn('key', ch.toUpperCase(), () => typeKey(ch)); kb.append(k); });
-  kb.append(btn('key w3', 'Espacio', () => typeKey(' ')), btn('key w2', '⌫', () => typeKey('\b')), btn('key w3', 'Borrar todo', () => { query = ''; renderQuery(); runSearch(); }));
+  kb.append(btn('key w3', 'Espacio', () => typeKey(' ')), btn('key w2', '⌫', () => typeKey('\b')), btn('key w2', 'Borrar', () => { query = ''; renderQuery(); runSearch(); }), btn('key w3 go', '🔍 Buscar', () => doSearch()));
   kb.firstChild.dataset.auto = '1';
-  left.append(qb, kb, el('p', 'note', 'También puedes escribir con un teclado.'));
+  kb.id = 'kbd';
+  // El cuadro de búsqueda es un botón: al picarlo vuelve a salir el teclado
+  qb.setAttribute('role', 'button'); qb.tabIndex = 0;
+  qb.onclick = () => showKb(true);
+  qb.onkeydown = (e) => { if (e.key === 'Enter') { e.preventDefault(); showKb(true); } };
+  const note = el('p', 'note', 'También puedes escribir con un teclado.'); note.id = 'kbnote';
+  left.append(qb, kb, note);
   const right = el('div', 'right');
   const f = el('div', 'chips');
   [['todo', 'Todo'], ['movie', 'Películas'], ['series', 'Series'], ['anime', 'Anime'], ['ch', 'Canales']].forEach(([k, n]) => {
@@ -954,6 +991,18 @@ function buildSearch() {
   right.append(f, res);
   wrap.append(left, right); v.append(wrap);
   renderQuery(); runSearch(true);
+}
+function showKb(on) {
+  const kb = $('kbd'); if (!kb) return;
+  kb.hidden = !on; $('kbnote').hidden = !on;
+  document.querySelector('#v-buscar .search').classList.toggle('closed', !on);
+  if (on) focusEl(kb.querySelector('.key'));
+}
+// Buscar: esconde el teclado y pasa a los resultados
+function doSearch() {
+  clearTimeout(searchT); runSearch();
+  showKb(false);
+  setTimeout(() => { const c = $('sres') && $('sres').querySelector('.card,.chip'); focusEl(c || $('qbox')); }, 900);
 }
 function typeKey(ch) {
   if (ch === '\b') query = query.slice(0, -1); else if (query.length < 40) query += ch;
@@ -1156,7 +1205,8 @@ async function refreshAddons() {
   const todo = S.servers.filter((s) => s.kind === 'addon' && !s.manifest?.catalogs);
   if (!todo.length) return;
   await Promise.allSettled(todo.map(readManifest));
-  if (addonCats().length) { ['inicio', 'peliculas', 'series', 'anime'].forEach((k) => { if (k !== view) built[k] = false; }); if (['inicio', 'peliculas', 'series', 'anime'].includes(view) && $('det').hidden && !isFull()) { const f = document.activeElement; if (!f || f === document.body || f.closest('#rail')) go(view); else built[view] = false; } }
+  const newVideo = todo.some((s) => resNames(s).includes('stream'));
+  if (addonCats().length || newVideo) { ['inicio', 'peliculas', 'series', 'anime'].forEach((k) => { if (k !== view) built[k] = false; }); if (['inicio', 'peliculas', 'series', 'anime'].includes(view) && $('det').hidden && !isFull()) { const f = document.activeElement; if (!f || f === document.body || f.closest('#rail')) go(view); else built[view] = false; } }
 }
 function vodId(x, ep) {
   if (x.src === 'addon') return ep ? {type: x.stype && x.stype !== 'movie' ? x.stype : 'series', id: ep.vid || (x.imdb ? x.imdb + ':' + ep.s + ':' + ep.e : null)} : {type: x.stype || 'movie', id: x.id};
@@ -1222,11 +1272,17 @@ async function playVod(x, ep, startAt) {
   pvMode = 'vod'; video.controls = true; $('yt').replaceChildren(); video.hidden = false;
   video.pause(); video.removeAttribute('src'); video.querySelectorAll('track').forEach((t) => t.remove());
   goFull(); msg('Buscando ' + vodLabel + '…', null, true);
-  let pending = adds.length, busy = false, playing = false;
+  let pending = adds.length, busy = false, playing = false; const vodT0 = Date.now();
   const pump = () => {
     if (sess !== vodSess || busy || playing) return;
     const left = vodOpts.filter((o) => !vodFailed.has(o) && o._p !== 'bad');
-    const s = left.find((o) => o._p === 'ok') || left.find((o) => o._p === 'unknown') || (left.every((o) => o._p === 'pending') ? null : left[0]);
+    // Se elige la mejor opción (Latino, 1080p…) que responda; si la mejor aún se está revisando, se espera hasta 3 s
+    let s = null;
+    for (const o of left) {
+      if (o._p === 'ok' || o._p === 'unknown') { s = o; break; }
+      if (o._p === 'pending' && Date.now() - vodT0 < 3000) { setTimeout(pump, 3050 - (Date.now() - vodT0)); return; }
+    }
+    if (!s && left.length && left.every((o) => o._p === 'pending')) return;
     if (!s) { if (!pending && !left.length) vodAllFailed(); return; }   // si todas siguen revisándose, se espera a la primera respuesta
     busy = true;
     msg('Abriendo opción ' + (vodOpts.indexOf(s) + 1) + (pending ? '' : ' de ' + vodOpts.length) + '…', null, true);
@@ -1274,7 +1330,15 @@ async function nativeVod(x, ep, adds, type, id, startAt) {
     return {url: s.url, ref: h.Referer || h.referer || '', ua: h['User-Agent'] || h['user-agent'] || ''};
   })}));
 }
+// Marca el título como "no se puede ver" y quita su carátula de las filas
+function markDead(x) {
+  if (!x) return;
+  const key = x.src + ':' + x.id; AV[key] = {ok: false, t: Date.now()}; saveAV();
+  document.querySelectorAll('.card').forEach((c) => { if (c._key === key && c !== document.activeElement) c.remove(); });
+}
+window.lzFailed = () => { if (vodItem) { markDead(vodItem.x); toast('Este título no se pudo reproducir; ya no se mostrará.'); } };
 function vodAllFailed() {
+  if (vodItem && vodOpts.length) markDead(vodItem.x);
   const b = [];
   if (vodOpts.length) b.push(btn('btn pri', 'Abrir en VLC', () => openExternal(vodOpts[0].url)), btn('btn', 'Elegir opción', openVodPick));
   b.push(btn('btn', 'Regresar', exitFull));
@@ -1499,6 +1563,7 @@ function loadSource(id) {
   return p;
 }
 
+let panelGroup = null;
 let liveAll = [], liveView = [], liveGroup = '', liveShown = 0, liveHidden = 0;
 function buildLive() { renderSources(); openSource(S.src); }
 function renderSources() {
@@ -1518,7 +1583,7 @@ async function openSource(id) {
   try {
     const r = await loadSource(id);
     if (S.src !== id) return;
-    liveAll = r.channels; liveHidden = r.hidden; if (liveGroup !== '★') liveGroup = '';
+    liveAll = r.channels; liveHidden = r.hidden; panelGroup = null; if (liveGroup !== '★') liveGroup = '';
     renderGroups(); renderChannels();
     // Al abrir: se pone solo el último canal que viste (o el primero)
     if (!curCh && view === 'vivo' && !isFull() && $('det').hidden) {
@@ -1730,7 +1795,7 @@ function goFull() {
   if (!inPlace && (playing || pvMode === 'live')) video.play().catch(() => {});
   pv.focus();
   if (pvMode === 'live' && !NATIVE && $('pvMsg').querySelector('button')) msg('Este canal no está disponible ahora.');
-  if (pvMode === 'live') { showOsd(); hint('▲ ▼  Cambiar canal   ·   OK  Lista de canales   ·   Regresar  Salir'); }
+  if (pvMode === 'live') { showOsd(); hint('▲ ▼  Cambiar canal   ·   OK  Canales por categoría   ·   Regresar  Salir'); }
   else if (pvMode === 'vod') hint('OK  Pausa   ·   ◀ ▶  Retroceder / Adelantar   ·   ▲  Subtítulos, audio y calidad   ·   Regresar  Salir');
   else hint('Regresar  Salir');
 }
@@ -1745,14 +1810,52 @@ function exitFull() {
   if (onRow) focusEl(onRow); else if (fullPrevFocus && visible(fullPrevFocus)) focusEl(fullPrevFocus); else focusEl(firstContent(cands()));
   video.controls = false;
 }
+// ◀ desde los canales regresa a la categoría elegida (no a la primera)
+document.addEventListener('keydown', (e) => {
+  if (e.key !== 'ArrowLeft' || $('panel').hidden || !document.activeElement?.closest('#plist')) return;
+  const on = $('pcats').hidden ? null : $('pcats').querySelector('.gbtn.on');
+  if (on) { e.preventDefault(); e.stopImmediatePropagation(); focusEl(on); }
+}, true);
 function openPanel() {
-  const p = $('plist'); p.replaceChildren();
-  $('panelTitle').textContent = curCh ? curCh.srcName : 'Canales';
-  const list = liveList.length ? liveList : [];
-  let cur = null;
-  list.slice(0, 400).forEach((c) => { const r = chRow(c, list, (ch, l) => { playChannel(ch, l); $('panel').hidden = true; pv.focus(); }); if (curCh && c.url === curCh.url) cur = r; p.append(r); });
+  // Panel de pantalla completa: a la izquierda las categorías, a la derecha los canales de esa categoría
+  const base = curCh && liveAll.some((c) => c.url === curCh.url) ? liveAll : (liveList.length ? liveList : liveAll);
+  const count = new Map(); base.forEach((c) => { if (c.group) count.set(c.group, (count.get(c.group) || 0) + 1); });
+  const favN = base.filter(isFav).length;
+  const cats = $('pcats'); cats.replaceChildren();
+  const useCats = count.size > 1 || favN > 0;
+  cats.hidden = !useCats; $('panel').classList.toggle('wcats', useCats);
+  if (panelGroup == null || (panelGroup && panelGroup !== '★' && !count.has(panelGroup))) panelGroup = curCh && count.has(curCh.group) ? curCh.group : '';
+  const listFor = (g) => base.filter((c) => !g || (g === '★' ? isFav(c) : c.group === g));
+  const fill = (focusList) => {
+    const p = $('plist'); p.replaceChildren();
+    const list = listFor(panelGroup);
+    let cur = null;
+    list.slice(0, 500).forEach((c) => { const r = chRow(c, list, (ch, l) => { playChannel(ch, l); $('panel').hidden = true; pv.focus(); }); if (curCh && c.url === curCh.url) cur = r; p.append(r); });
+    if (!list.length) p.append(el('p', 'note', 'No hay canales aquí.'));
+    else if (list.length > 500) p.append(el('p', 'note', 'Se muestran 500 de ' + list.length + '.'));
+    list.slice(0, 500).forEach((c) => { if (chState(c) !== null) paintRows(c); });
+    checkChannels(list.slice(0, 60));
+    $('panelTitle').textContent = (curCh ? curCh.srcName : 'Canales') + (panelGroup ? ' · ' + (panelGroup === '★' ? 'Favoritos' : panelGroup) : '');
+    if (focusList) focusEl(cur || p.querySelector('.chrow') || p.firstChild);
+    return cur;
+  };
+  let curCat = null;
+  const gb = (key, name, n) => {
+    const b = el('button', 'gbtn' + (panelGroup === key ? ' on' : '')); b.type = 'button';
+    b.append(el('span', null, name), el('small', null, n));
+    b.onclick = () => { panelGroup = key; cats.querySelectorAll('.gbtn').forEach((x) => x.classList.toggle('on', x === b)); fill(true); };
+    if (panelGroup === key) curCat = b;
+    return b;
+  };
+  if (useCats) {
+    cats.append(gb('', 'Todos', base.length));
+    if (favN) cats.append(gb('★', '★ Favoritos', favN));
+    [...count.entries()].sort((a, b) => b[1] - a[1]).forEach(([k, n]) => cats.append(gb(k, k, n)));
+  }
   $('panel').hidden = false;
-  focusEl(cur || p.firstChild);
+  const cur = fill(false);
+  focusEl(cur || $('plist').querySelector('.chrow') || curCat || $('plist').firstChild);
+  if (curCat) curCat.scrollIntoView({block: 'center'});
 }
 function playerKey(e) {
   const k = e.key;
@@ -2085,6 +2188,7 @@ function buildSettings() {
   const bC = el('div', 'box'); bC.append(el('h2', 'disp', 'Mi código'), el('p', 'note', S.cfgUrl ? 'Configuración en uso: ' + (S.cfgUrl.startsWith(CODE_BASE) ? 'código ' + S.cfgUrl.slice(CODE_BASE.length).replace('.json', '') : 'link') : 'Escribe tu código para traer tus complementos y servidores.'));
   const cIn = el('input'); cIn.placeholder = 'Tu código, ej. 482913'; cIn.inputMode = 'numeric';
   const cB = el('div', 'btns'); cB.append(btn('btn pri', 'Entrar con este código', async () => { if (cIn.value.trim().length < 3) return toast('Escribe tu código'); try { await importFromUrl(fixLink(cIn.value)); refreshAddons(); buildSettings(); } catch { toast('No encontré ese código. Revisa los números.'); } }));
+  cB.append(btn('btn', 'Usar este número como mi código', () => { const c = cIn.value.trim(); if (!/^[A-Za-z0-9_-]{3,20}$/.test(c)) return toast('Escribe tu número primero'); S.myCode = c.toUpperCase(); save(); toast('Listo: “Crear mi código” usará el ' + S.myCode); }));
   bC.append(cIn, cB); w.append(bC);
   const chips = (opts, cur, set) => { const c = el('div', 'chips'); opts.forEach(([k, n]) => c.append(btn('chip' + (k === cur ? ' on' : ''), n, (e) => { set(k); c.querySelectorAll('.chip').forEach((x) => x.classList.toggle('on', x === e.currentTarget)); }))); return c; };
   const resetMeta = () => { cache.clear(); ['inicio', 'peliculas', 'series', 'anime', 'buscar'].forEach((k) => built[k] = false); loadTmdbGenres(); };
@@ -2182,7 +2286,8 @@ function buildSettings() {
   const lb2 = el('div', 'btns');
   lb2.append(btn('btn', 'Descargar mi archivo de configuración', () => { const a = el('a'); a.href = URL.createObjectURL(new Blob([JSON.stringify(cfgData(), null, 1)], {type: 'application/json'})); a.download = 'lz-config.json'; document.body.append(a); a.click(); a.remove(); toast('Se descargó lz-config.json'); }));
   lb2.append(btn('btn pri', 'Crear mi código', () => {
-    const code = S.myCode || String(Math.floor(100000 + Math.random() * 900000)); S.myCode = code; save();
+    const inUse = S.cfgUrl && S.cfgUrl.startsWith(CODE_BASE) ? S.cfgUrl.slice(CODE_BASE.length).replace('.json', '') : '';
+    const code = S.myCode || inUse || String(Math.floor(100000 + Math.random() * 900000)); S.myCode = code; save();
     const a = el('a'); a.href = URL.createObjectURL(new Blob([JSON.stringify(cfgData(), null, 1)], {type: 'application/json'})); a.download = code + '.json'; document.body.append(a); a.click(); a.remove();
     openPick('Tu código: ' + code, [el('p', 'note', 'Se descargó el archivo ' + code + '.json. Súbelo a tu GitHub así:'),
       el('p', 'note', '1. Abre github.com/juandppuente2003-netizen/lz-plus/upload/main/configs'),
@@ -2194,6 +2299,17 @@ function buildSettings() {
   lb2.append(btn('btn', 'Traer con código o link', async () => { const u = lin.value.trim(); if (u.length < 8) return toast('Pega el link primero'); try { await importFromUrl(fixLink(u)); buildSettings(); } catch (e) { toast('No se pudo leer ese link (' + e.message + ')'); } }));
   if (S.cfgUrl) lb2.append(btn('btn danger', 'Dejar de usar el link', () => { S.cfgUrl = ''; save(); buildSettings(); }));
   bL.append(lin, lb2); w.append(bL);
+  // Historial: borrar "Continuar viendo" y/o canales vistos (no toca favoritos, Mi lista ni servidores)
+  const bH = el('div', 'box');
+  const nW = Object.keys(S.watch || {}).length, nR = (S.recents || []).length;
+  bH.append(el('h2', 'disp', 'Historial'), el('p', 'note', 'Películas y series en “Continuar viendo”: ' + nW + ' · Canales en “Seguir viendo”: ' + nR + '. Tus favoritos, Mi lista y servidores no se borran.'));
+  const clearHist = (what) => { if (what !== 'vivo') S.watch = {}; if (what !== 'vod') S.recents = []; save(); toast('Historial borrado'); buildSettings(); };
+  bH.append(
+    btn('btn', 'Borrar películas y series', () => confirmBox('¿Borrar “Continuar viendo”?', 'Se quitan las películas y series que estabas viendo y su avance.', 'Borrar', () => clearHist('vod'))),
+    btn('btn', 'Borrar canales vistos', () => confirmBox('¿Borrar canales vistos?', 'Se vacía “Seguir viendo · En vivo”.', 'Borrar', () => clearHist('vivo'))),
+    btn('btn danger', 'Borrar todo el historial', () => confirmBox('¿Borrar todo el historial?', 'No se puede deshacer.', 'Borrar historial', () => clearHist('todo')))
+  );
+  w.append(bH);
   const b5 = el('div', 'box'); b5.append(el('h2', 'disp', 'Restablecer'), el('p', 'note', 'Borra servidores, favoritos, clave y PIN de este aparato.'));
   b5.append(btn('btn danger', 'Borrar todo', () => confirmBox('¿Borrar todo?', 'No se puede deshacer.', 'Borrar todo', () => { localStorage.removeItem(KEY); location.reload(); })));
   w.append(b5);
@@ -2212,6 +2328,7 @@ clock(); setInterval(clock, 15000);
 const proxyReady = detectProxy();
 Promise.race([proxyReady, sleep(1800)]).then(() => { netState(); built.vivo = true; buildLive(); });
 Promise.allSettled([proxyReady, loadTmdbGenres()]).then(async () => {
+  refreshAddons();   // los complementos se leen de inmediato (no esperan a nada más)
   if (S.cfgUrl) { try { await importFromUrl(S.cfgUrl, true); refreshAddons(); } catch {} }
   if (!streamAddons().length && !S.welcomeSkip2 && !(PROXY && !NATIVE && S.servers.length > 1)) { setTimeout(welcome, 1200); return; }
   if (NATIVE && !S.cfgImported && !streamAddons().length) {   // primera vez en la TV: trae tus complementos de la computadora (por detrás)

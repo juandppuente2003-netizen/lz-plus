@@ -73,7 +73,8 @@ public class MainActivity extends Activity {
         super.onActivityResult(requestCode, resultCode, data);
         if (requestCode == 7 && data != null) {
             long pos = data.getLongExtra("pos", 0), dur = data.getLongExtra("dur", 0);
-            web.evaluateJavascript("window.lzProgress && lzProgress(" + pos + "," + dur + ")", null);
+            if (data.getBooleanExtra("failed", false)) web.evaluateJavascript("window.lzFailed && lzFailed()", null);
+            else web.evaluateJavascript("window.lzProgress && lzProgress(" + pos + "," + dur + ")", null);
         }
     }
 

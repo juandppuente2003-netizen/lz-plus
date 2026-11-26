@@ -42,6 +42,7 @@ public class PlayerActivity extends Activity {
     private String sub, subLang;
     private long startMs = 0;
     private String audioLang = "es";
+    private boolean failedAll = false;
     private final Handler handler = new Handler(Looper.getMainLooper());
     private final Runnable startWatchdog = new Runnable() {
         public void run() {
@@ -95,6 +96,10 @@ public class PlayerActivity extends Activity {
         handler.removeCallbacks(startWatchdog);
         index = i;
         if (index >= opts.length()) {
+            failedAll = opts.length() > 0;
+            android.content.Intent r = new android.content.Intent();   // avisar antes de cerrar
+            r.putExtra("failed", failedAll);
+            setResult(RESULT_OK, r);
             Toast.makeText(this, opts.length() == 0 ? "No hay video para reproducir" : "Ninguna opción se pudo reproducir", Toast.LENGTH_LONG).show();
             finish();
             return;
@@ -144,11 +149,12 @@ public class PlayerActivity extends Activity {
     protected void onPause() {
         super.onPause();
         // Avisa a la app hasta dónde se vio (para "Continuar viendo")
-        if (player != null) {
+        if (player != null && !failedAll) {
             android.content.Intent r = new android.content.Intent();
             r.putExtra("pos", Math.max(0, player.getCurrentPosition() / 1000));
             long d = player.getDuration();
             r.putExtra("dur", d > 0 ? d / 1000 : 0);
+            r.putExtra("failed", failedAll);
             setResult(RESULT_OK, r);
         }
     }
