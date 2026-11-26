@@ -1,0 +1,642 @@
+{
+ "v": 1,
+ "servers": [
+  {
+   "kind": "addon",
+   "url": "https://torrentio.strem.fun/sort=qualitysize|language=spanish,latino|qualityfilter=4k|debridoptions=nodownloadlinks,nocatalog|alldebrid=3Q3QW6PG8KC9GXBG3K2B/manifest.json",
+   "name": "TORRENTIO",
+   "autoName": false,
+   "id": "mwx6y14af5ph",
+   "manifest": {
+    "name": "Torrentio AD",
+    "description": "Provides torrent streams from scraped torrent providers. Currently supports YTS(+), EZTV(+), RARBG(+), 1337x(+), EXT(+), ThePirateBay(+), KickassTorrents(+), TorrentGalaxy(+), UIndex(+), Knaben(+), MagnetDL(+), HorribleSubs(+), NyaaSi(+), AnimeTosho(+), TokyoTosho(+), AniDex(+), nekoBT(+), Rutor(+), Rutracker(+), Comando(+), BluDV(+), MicoLeaoDublado(+), Torrent9(+), ilCorSaRoNeRo(+), MejorTorrent(+), Wolfmax4k(+), Cinecalidad(+), BestTorrents(+) and AllDebrid enabled. To configure providers, RealDebrid/Premiumize/AllDebrid/DebridLink/EasyDebrid/Offcloud/TorBox/Put.io/HighWay support and other settings visit https://torrentio.strem.fun",
+    "logo": "https://torrentio.strem.fun/images/logo_v1.png",
+    "version": "0.0.15",
+    "resources": [
+     {
+      "name": "stream",
+      "types": [
+       "movie",
+       "series",
+       "anime"
+      ],
+      "idPrefixes": [
+       "tt",
+       "kitsu"
+      ]
+     }
+    ],
+    "types": [
+     "movie",
+     "series",
+     "anime",
+     "other"
+    ],
+    "catalogs": [],
+    "configurable": true,
+    "configurationRequired": false
+   }
+  },
+  {
+   "kind": "addon",
+   "url": "https://7a82163c306e-stremio-netflix-catalog-addon.baby-beamup.club/bmZ4LGRucCxhbXAsYXRwLGhibTo6OjE3OTU2NzQ4NzQ3Nzk6MDowOk1Y/manifest.json",
+   "name": "CATA",
+   "autoName": false,
+   "id": "mwx6z16ipphu",
+   "manifest": {
+    "name": "Streaming Catalogs",
+    "description": "Your favourite streaming services!",
+    "logo": "https://play-lh.googleusercontent.com/TBRwjS_qfJCSj1m7zZB93FnpJM5fSpMA_wUlFDLxWAb45T9RmwBvQd5cWR5viJJOhkI",
+    "version": "1.1.1",
+    "resources": [
+     "catalog"
+    ],
+    "types": [
+     "movie",
+     "series"
+    ],
+    "idPrefixes": [
+     "tt"
+    ],
+    "catalogs": [
+     {
+      "type": "movie",
+      "id": "nfx",
+      "name": "Netflix",
+      "search": false,
+      "required": false
+     },
+     {
+      "type": "series",
+      "id": "nfx",
+      "name": "Netflix",
+      "search": false,
+      "required": false
+     },
+     {
+      "type": "movie",
+      "id": "dnp",
+      "name": "Disney+",
+      "search": false,
+      "required": false
+     },
+     {
+      "type": "series",
+      "id": "dnp",
+      "name": "Disney+",
+      "search": false,
+      "required": false
+     },
+     {
+      "type": "movie",
+      "id": "amp",
+      "name": "Prime Video",
+      "search": false,
+      "required": false
+     },
+     {
+      "type": "series",
+      "id": "amp",
+      "name": "Prime Video",
+      "search": false,
+      "required": false
+     },
+     {
+      "type": "movie",
+      "id": "atp",
+      "name": "Apple TV+",
+      "search": false,
+      "required": false
+     },
+     {
+      "type": "series",
+      "id": "atp",
+      "name": "Apple TV+",
+      "search": false,
+      "required": false
+     },
+     {
+      "type": "movie",
+      "id": "hbm",
+      "name": "HBO Max",
+      "search": false,
+      "required": false
+     },
+     {
+      "type": "series",
+      "id": "hbm",
+      "name": "HBO Max",
+      "search": false,
+      "required": false
+     }
+    ],
+    "configurable": true,
+    "configurationRequired": false
+   }
+  },
+  {
+   "kind": "addon",
+   "url": "https://opensubtitles-v3.strem.io/manifest.json",
+   "name": "SUB",
+   "autoName": false,
+   "id": "mwx6zbc36ioq",
+   "manifest": {
+    "name": "OpenSubtitles v3",
+    "description": "OpenSubtitles v3 Addon for Stremio",
+    "logo": "http://www.strem.io/images/addons/opensubtitles-logo.png",
+    "version": "1.0.0",
+    "resources": [
+     "subtitles"
+    ],
+    "types": [
+     "movie",
+     "series"
+    ],
+    "idPrefixes": [
+     "tt"
+    ],
+    "catalogs": [],
+    "configurable": false,
+    "configurationRequired": false
+   }
+  },
+  {
+   "kind": "addon",
+   "url": "https://v3-cinemeta.strem.io/manifest.json",
+   "name": "CINE",
+   "autoName": false,
+   "id": "mwx6zieqaff5",
+   "manifest": {
+    "name": "Cinemeta",
+    "description": "The official addon for movie and series catalogs",
+    "version": "3.0.14",
+    "resources": [
+     "catalog",
+     "meta",
+     "addon_catalog"
+    ],
+    "types": [
+     "movie",
+     "series"
+    ],
+    "idPrefixes": [
+     "tt"
+    ],
+    "catalogs": [
+     {
+      "type": "movie",
+      "id": "top",
+      "name": "Popular",
+      "search": true,
+      "required": false
+     },
+     {
+      "type": "series",
+      "id": "top",
+      "name": "Popular",
+      "search": true,
+      "required": false
+     },
+     {
+      "type": "movie",
+      "id": "year",
+      "name": "New",
+      "search": false,
+      "required": true
+     },
+     {
+      "type": "series",
+      "id": "year",
+      "name": "New",
+      "search": false,
+      "required": true
+     },
+     {
+      "type": "movie",
+      "id": "imdbRating",
+      "name": "Featured",
+      "search": false,
+      "required": false
+     },
+     {
+      "type": "series",
+      "id": "imdbRating",
+      "name": "Featured",
+      "search": false,
+      "required": false
+     },
+     {
+      "type": "series",
+      "id": "last-videos",
+      "name": "Last videos",
+      "search": false,
+      "required": true
+     },
+     {
+      "type": "series",
+      "id": "calendar-videos",
+      "name": "Calendar videos",
+      "search": false,
+      "required": true
+     }
+    ],
+    "configurable": false,
+    "configurationRequired": false
+   }
+  }
+ ],
+ "favs": [],
+ "lib": [],
+ "watch": {
+  "cine:tt6611324": {
+   "it": {
+    "src": "cine",
+    "id": "tt6611324",
+    "type": "movie",
+    "stype": "movie",
+    "title": "The Bodyguard",
+    "poster": "https://images.metahub.space/poster/small/tt6611324/img",
+    "backdrop": "https://images.metahub.space/background/medium/tt6611324/img",
+    "year": "2026",
+    "rating": "",
+    "genres": [
+     "Comedia",
+     "Drama",
+     "Romance"
+    ],
+    "overview": "A skilled bodyguard is assigned to protect a reclusive movie star from a stalker and must pose as his girlfriend to keep the threat hidden. On his family ranch, the assignment blurs lines as proximity complicates the job."
+   },
+   "ep": null,
+   "t": 2,
+   "d": 6,
+   "at": 1795675930604
+  },
+  "cine:tt33764258": {
+   "it": {
+    "src": "cine",
+    "id": "tt33764258",
+    "type": "movie",
+    "stype": "movie",
+    "title": "The Odyssey",
+    "poster": "https://images.metahub.space/poster/small/tt33764258/img",
+    "backdrop": "https://images.metahub.space/background/medium/tt33764258/img",
+    "year": "2026",
+    "rating": "8.4",
+    "genres": [
+     "Acción",
+     "Aventura",
+     "Drama"
+    ],
+    "overview": "After the Trojan War, Odysseus faces a dangerous voyage back to Ithaca, meeting creatures like the Cyclops Polyphemus, Sirens, and Calypso along the way."
+   },
+   "ep": null,
+   "t": 18,
+   "d": 25,
+   "at": 1795675956132
+  },
+  "cine:tt35538033": {
+   "it": {
+    "src": "cine",
+    "id": "tt35538033",
+    "type": "movie",
+    "stype": "movie",
+    "title": "Resident Evil",
+    "poster": "https://images.metahub.space/poster/small/tt35538033/img",
+    "backdrop": "https://images.metahub.space/background/medium/tt35538033/img",
+    "year": "2026",
+    "rating": "",
+    "genres": [
+     "Acción",
+     "Terror",
+     "Ciencia ficción"
+    ],
+    "overview": "Follows a hapless courier tasked with delivering a package to a remote hospital. He soon finds himself caught in the middle of an outbreak and must fight through hordes of mutated creatures to survive."
+   },
+   "ep": null,
+   "t": 847,
+   "d": 5629,
+   "at": 1795677319537
+  },
+  "cine:tt8014982": {
+   "it": {
+    "src": "cine",
+    "id": "tt8014982",
+    "type": "series",
+    "stype": "series",
+    "title": "The Body",
+    "poster": "https://images.metahub.space/poster/small/tt8014982/img",
+    "backdrop": "https://images.metahub.space/background/medium/tt8014982/img",
+    "year": "2026",
+    "rating": "",
+    "genres": [
+     "Drama",
+     "Terror",
+     "Suspenso"
+    ],
+    "overview": "A group of misbehaving Catholic school girls experience prophetic visions after a dance-team initiation goes wrong, triggering mass hysteria throughout their town."
+   },
+   "ep": {
+    "s": 1,
+    "e": 1
+   },
+   "t": 33,
+   "d": 3521,
+   "at": 1795680269972
+  },
+  "cine:tt1392170": {
+   "it": {
+    "src": "cine",
+    "id": "tt1392170",
+    "type": "movie",
+    "stype": "movie",
+    "title": "The Hunger Games",
+    "poster": "https://images.metahub.space/poster/small/tt1392170/img",
+    "backdrop": "https://images.metahub.space/background/medium/tt1392170/img",
+    "year": "2012",
+    "rating": "7.2",
+    "genres": [
+     "Acción",
+     "Aventura",
+     "Ciencia ficción"
+    ],
+    "overview": "Katniss Everdeen voluntarily takes her younger sister's place in the Hunger Games: a televised competition in which two teenagers from each of the twelve Districts of Panem are chosen at random to fight to the death."
+   },
+   "ep": null,
+   "t": 178,
+   "d": 8550,
+   "at": 1795677961792
+  },
+  "cine:tt32141377": {
+   "it": {
+    "src": "cine",
+    "id": "tt32141377",
+    "type": "movie",
+    "stype": "movie",
+    "title": "28 Years Later: The Bone Temple",
+    "poster": "https://images.metahub.space/poster/small/tt32141377/img",
+    "backdrop": "https://images.metahub.space/background/medium/tt32141377/img",
+    "year": "2026",
+    "rating": "7.2",
+    "genres": [
+     "Terror",
+     "Ciencia ficción",
+     "Suspenso"
+    ],
+    "overview": "As Spike is inducted into Jimmy Crystal's gang on the mainland, Dr. Kelson makes a discovery that could alter the world."
+   },
+   "ep": null,
+   "t": 0,
+   "d": 0,
+   "at": 1795678705025
+  },
+  "cine:tt14413964": {
+   "it": {
+    "src": "cine",
+    "id": "tt14413964",
+    "type": "movie",
+    "stype": "movie",
+    "title": "Steps",
+    "poster": "https://images.metahub.space/poster/small/tt14413964/img",
+    "backdrop": "https://images.metahub.space/background/medium/tt14413964/img",
+    "year": "2026",
+    "rating": "",
+    "genres": [
+     "Animación",
+     "Aventura",
+     "Comedia"
+    ],
+    "overview": "Blamed for magical mischief at the Royal Ball, stepsister Lilith turns her sister into a frog. She must work with Cinderella and a troll to save the kingdom and prove villains deserve happy endings too."
+   },
+   "ep": null,
+   "t": 270,
+   "d": 6394,
+   "at": 1795678744570
+  },
+  "cine:tt0099785": {
+   "it": {
+    "src": "cine",
+    "id": "tt0099785",
+    "type": "movie",
+    "stype": "movie",
+    "title": "Home Alone",
+    "poster": "https://images.metahub.space/poster/small/tt0099785/img",
+    "backdrop": "https://images.metahub.space/background/medium/tt0099785/img",
+    "year": "1990",
+    "rating": "7.8",
+    "genres": [
+     "Comedia",
+     "Familia"
+    ],
+    "overview": "An eight-year-old troublemaker, mistakenly left home alone, must defend his home against a pair of burglars on Christmas Eve."
+   },
+   "ep": null,
+   "t": 469,
+   "d": 6174,
+   "at": 1795679209574
+  },
+  "addon:https://xhamster.com/videos/nervous-couple-end-up-double-teaming-busty-masseuse-xhJ8Fbx": {
+   "it": {
+    "src": "addon",
+    "id": "https://xhamster.com/videos/nervous-couple-end-up-double-teaming-busty-masseuse-xhJ8Fbx",
+    "type": "movie",
+    "stype": "movie",
+    "addon": "mwx9kyihur9c",
+    "title": "Nervous Couple End Up Double Teaming Busty Masseuse",
+    "poster": "https://ic-vt-nss.xhcdn.com/a/YTFhNWJhNWZlMjgxZjljMDQ4NjRiNDFiNThhNzU1MDA/s(w:1280,h:720),jpeg/019/172/684/1280x720.c.jpg.v1619123160",
+    "backdrop": "https://ic-vt-nss.xhcdn.com/a/YTFhNWJhNWZlMjgxZjljMDQ4NjRiNDFiNThhNzU1MDA/s(w:1280,h:720),jpeg/019/172/684/1280x720.c.jpg.v1619123160",
+    "year": "",
+    "rating": "",
+    "genres": [],
+    "overview": ""
+   },
+   "ep": null,
+   "t": 0,
+   "d": 0,
+   "at": 1795680166330
+  },
+  "addon:https://xhamster.com/videos/vip4k-milf-offers-nerd-better-alternative-than-gaming-xhAaIdm": {
+   "it": {
+    "src": "addon",
+    "id": "https://xhamster.com/videos/vip4k-milf-offers-nerd-better-alternative-than-gaming-xhAaIdm",
+    "type": "movie",
+    "stype": "movie",
+    "addon": "mwx9kyihur9c",
+    "title": "VIP4K. MILF offers nerd Better Alternative than Gaming",
+    "poster": "https://ic-vt-nss.xhcdn.com/a/ZDY5Njg4ZmY3NTlhNmM2MDYwMjYzNDhiZWRkNzU3MDY/s(w:1280,h:720),jpeg/028/639/463/1280x720.17689417.jpg",
+    "backdrop": "https://ic-vt-nss.xhcdn.com/a/ZDY5Njg4ZmY3NTlhNmM2MDYwMjYzNDhiZWRkNzU3MDY/s(w:1280,h:720),jpeg/028/639/463/1280x720.17689417.jpg",
+    "year": "",
+    "rating": "",
+    "genres": [],
+    "overview": ""
+   },
+   "ep": null,
+   "t": 0,
+   "d": 0,
+   "at": 1795680172361
+  },
+  "addon:https://xhamster.com/videos/alt-girl-friend-quietly-hid-in-closet-until-stepmom-went-to-bed-then-i-fucked-her-good-xhTr4GU": {
+   "it": {
+    "src": "addon",
+    "id": "https://xhamster.com/videos/alt-girl-friend-quietly-hid-in-closet-until-stepmom-went-to-bed-then-i-fucked-her-good-xhTr4GU",
+    "type": "movie",
+    "stype": "movie",
+    "addon": "mwx9kyihur9c",
+    "title": "Alt Girl Friend Quietly Hid in Closet Until Stepmom Went to Bed - Then I Fucked Her Good",
+    "poster": "https://ic-vt-nss.xhcdn.com/a/OGM4MDc4ZWIwNjJhZDNkY2E4ZGY3Nzg3NWRhMTRjMWI/s(w:1280,h:720),jpeg/029/885/733/v2/1280x720.205.jpg",
+    "backdrop": "https://ic-vt-nss.xhcdn.com/a/OGM4MDc4ZWIwNjJhZDNkY2E4ZGY3Nzg3NWRhMTRjMWI/s(w:1280,h:720),jpeg/029/885/733/v2/1280x720.205.jpg",
+    "year": "",
+    "rating": "",
+    "genres": [],
+    "overview": ""
+   },
+   "ep": null,
+   "t": 0,
+   "d": 0,
+   "at": 1795680191602
+  },
+  "addon:https://www.eporner.com/video-cG3jxapwZ4b/squikt-chaturbate-livestream-04-18-2026/": {
+   "it": {
+    "src": "addon",
+    "id": "https://www.eporner.com/video-cG3jxapwZ4b/squikt-chaturbate-livestream-04-18-2026/",
+    "type": "movie",
+    "stype": "movie",
+    "addon": "mwx9kyihur9c",
+    "title": "Squikt Chaturbate Livestream 04/18/2026 - EPORNER",
+    "poster": "https://static-eu-cdn.eporner.com/thumbs/static4/1/16/169/16901719/13_240.jpg",
+    "backdrop": "https://static-eu-cdn.eporner.com/thumbs/static4/1/16/169/16901719/13_240.jpg",
+    "year": "",
+    "rating": "",
+    "genres": [
+     "Amateur",
+     "Homemade",
+     "Big Tits"
+    ],
+    "overview": "Watch Squikt Chaturbate Livestream 04/18/2026. Duration: 7:20, available in: 1080p, 720p, 480p, 360p, 240p. Eporner is the largest hd porn source."
+   },
+   "ep": null,
+   "t": 0,
+   "d": 0,
+   "at": 1795680232738
+  },
+  "addon:https://www.eporner.com/video-arrFIpO1DTY/she-s-so-tight-it-almost-feels-wrong/": {
+   "it": {
+    "src": "addon",
+    "id": "https://www.eporner.com/video-arrFIpO1DTY/she-s-so-tight-it-almost-feels-wrong/",
+    "type": "movie",
+    "stype": "movie",
+    "addon": "mwx9kyihur9c",
+    "title": "She’s So Tight It Almost Feels Wrong - Cindy Luna Petite - EPORNER",
+    "poster": "https://static-eu-cdn.eporner.com/thumbs/static4/1/17/170/17072308/15_240.jpg",
+    "backdrop": "https://static-eu-cdn.eporner.com/thumbs/static4/1/17/170/17072308/15_240.jpg",
+    "year": "",
+    "rating": "",
+    "genres": [
+     "Teen",
+     "Cumshot",
+     "Hardcore"
+    ],
+    "overview": "Watch She’s So Tight It Almost Feels Wrong - Cindy Luna Petite. Starring: Cindy Luna Petite. Duration: 11:37, available in: 1080p, 720p, 480p, 360p, 240p. Eporner is the largest hd porn source."
+   },
+   "ep": null,
+   "t": 0,
+   "d": 0,
+   "at": 1795680243323
+  },
+  "addon:https://www.eporner.com/video-abY1K4YGrA1/catalina-nahomy-2026-09-15-18-09-throat-face-anal/": {
+   "it": {
+    "src": "addon",
+    "id": "https://www.eporner.com/video-abY1K4YGrA1/catalina-nahomy-2026-09-15-18-09-throat-face-anal/",
+    "type": "movie",
+    "stype": "movie",
+    "addon": "mwx9kyihur9c",
+    "title": "Catalina Nahomy 2026 09 15 18.09 THROAT FACE ANAL - EPORNER",
+    "poster": "https://static-eu-cdn.eporner.com/thumbs/static4/1/18/184/18466402/5_240.jpg",
+    "backdrop": "https://static-eu-cdn.eporner.com/thumbs/static4/1/18/184/18466402/5_240.jpg",
+    "year": "",
+    "rating": "",
+    "genres": [
+     "Teen",
+     "Anal",
+     "Hardcore"
+    ],
+    "overview": "Watch Catalina Nahomy 2026 09 15 18.09 THROAT FACE ANAL. Duration: 96:26, available in: 1080p, 720p, 480p, 360p, 240p. Eporner is the largest hd porn source."
+   },
+   "ep": null,
+   "t": 0,
+   "d": 0,
+   "at": 1795680256155
+  },
+  "addon:https://xhamster.com/videos/i-do-anal-on-my-teen-neighbors-virgin-ass-and-cum-inside-xhp84aE": {
+   "it": {
+    "src": "addon",
+    "id": "https://xhamster.com/videos/i-do-anal-on-my-teen-neighbors-virgin-ass-and-cum-inside-xhp84aE",
+    "type": "movie",
+    "stype": "movie",
+    "addon": "mwx9kyihur9c",
+    "title": "I do anal on my teen neighbor's virgin ass and cum inside",
+    "poster": "https://ic-vt-nss.xhcdn.com/a/ODAyMjdkMGNmMjRmNjFlYWRjNWM0Y2U1YjZmNDc5N2I/s(w:1280,h:720),jpeg/017/199/832/v2/1280x720.244.jpg",
+    "backdrop": "https://ic-vt-nss.xhcdn.com/a/ODAyMjdkMGNmMjRmNjFlYWRjNWM0Y2U1YjZmNDc5N2I/s(w:1280,h:720),jpeg/017/199/832/v2/1280x720.244.jpg",
+    "year": "",
+    "rating": "",
+    "genres": [],
+    "overview": ""
+   },
+   "ep": null,
+   "t": 0,
+   "d": 0,
+   "at": 1795680262371
+  },
+  "cine:tt33043892": {
+   "it": {
+    "src": "cine",
+    "id": "tt33043892",
+    "type": "series",
+    "stype": "series",
+    "title": "Dexter: Resurrection",
+    "poster": "https://images.metahub.space/poster/small/tt33043892/img",
+    "backdrop": "https://images.metahub.space/background/medium/tt33043892/img",
+    "year": "2025",
+    "rating": "9.0",
+    "genres": [
+     "Crimen",
+     "Drama",
+     "Misterio"
+    ],
+    "overview": "Dexter Morgan awakens from a coma and sets out for New York City, determined to find Harrison and make things right. But when Miami Metro's Angel Batista arrives with questions, Dexter realizes his past is catching up to him fast."
+   },
+   "ep": {
+    "s": 1,
+    "e": 1
+   },
+   "t": 2,
+   "d": 3083,
+   "at": 1795680299908
+  },
+  "addon:https://xhamster.com/videos/laura-angel-forever-original-version-in-full-hd-xhaqBT3": {
+   "it": {
+    "src": "addon",
+    "id": "https://xhamster.com/videos/laura-angel-forever-original-version-in-full-hd-xhaqBT3",
+    "type": "movie",
+    "stype": "movie",
+    "addon": "mwx9kyihur9c",
+    "title": "Laura Angel Forever - (original version in Full HD",
+    "poster": "https://ic-vt-nss.xhcdn.com/a/YWNiNWRkNGQ5ZmVmOTNjOTg3ODQ5OWU5MmFkMTQzZjg/s(w:1280,h:720),jpeg/023/369/582/v2/1280x720.238.jpg",
+    "backdrop": "https://ic-vt-nss.xhcdn.com/a/YWNiNWRkNGQ5ZmVmOTNjOTg3ODQ5OWU5MmFkMTQzZjg/s(w:1280,h:720),jpeg/023/369/582/v2/1280x720.238.jpg",
+    "year": "",
+    "rating": "",
+    "genres": [],
+    "overview": ""
+   },
+   "ep": null,
+   "t": 0,
+   "d": 0,
+   "at": 1795680312403
+  }
+ },
+ "lang": "es-MX",
+ "subLang": "spa",
+ "tmdb": "",
+ "iptv": "regions/latam",
+ "cue": "2.2rem",
+ "onlyAvail": true
+}
