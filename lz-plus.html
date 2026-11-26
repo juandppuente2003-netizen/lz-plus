@@ -90,6 +90,9 @@
   .view.cat .spot{height:56vh;min-height:20rem;flex-shrink:0}
   .view.cat .rows{flex:1;min-height:0;overflow-y:auto;margin-top:-6.5rem;padding-bottom:4rem;scroll-padding-top:1rem}
   .view.cat .rows::-webkit-scrollbar{width:0}
+  .row{content-visibility:auto;contain-intrinsic-size:auto 26rem}
+  body.lite .card:focus .pi,body.phone .card:focus .pi{box-shadow:0 0 0 .22rem var(--accent2)}
+  body.lite .btn:focus,body.lite .nav:focus,body.lite .chip:focus,body.lite .key:focus,body.lite .gbtn:focus,body.lite .opt:focus,body.lite .ibtn:focus{box-shadow:none}
   .row h3{margin:0 0 .2rem 3rem;font-size:1.7rem;display:flex;gap:1rem;align-items:baseline}
   .row h3 small{font-family:Manrope,sans-serif;font-size:.95rem;color:var(--mut);font-weight:600;letter-spacing:0}
   .strip{display:flex;gap:1.1rem;overflow-x:auto;padding:1rem 3rem 1.3rem;scroll-padding:0 3rem}
@@ -766,16 +769,27 @@ let unlocked = false;
 let toastT;
 function toast(msg, ms = 3800) { const t = $('toast'); t.textContent = msg; t.classList.add('show'); clearTimeout(toastT); toastT = setTimeout(() => t.classList.remove('show'), ms); }
 const cache = new Map();
+const CACHE_MAX = () => (NATIVE || (document.body && document.body.classList.contains('phone'))) ? 160 : 400;
 function J(url, ms = 20000) {
-  if (cache.has(url)) return cache.get(url);
+  if (cache.has(url)) { const v = cache.get(url); cache.delete(url); cache.set(url, v); return v; }   // la más usada queda al final
+  while (cache.size >= CACHE_MAX()) cache.delete(cache.keys().next().value);   // se olvida la más vieja
   const get = (u) => withTimeout(fetch(u), ms).then((r) => { if (!r.ok) { const e = new Error('HTTP ' + r.status); e.status = r.status; throw e; } return r.json(); });
   // Si el complemento no deja conectarse directo, se reintenta a través del intermediario
   const p = get(url).catch((e) => PROXY && !url.startsWith(PROXY_BASE) && (e.message === 'Failed to fetch' || e.status === 403 || e.status === 429) ? get(px(url)) : Promise.reject(e));
   cache.set(url, p); p.catch(() => cache.delete(url));
   return p;
 }
+// Imágenes al tamaño que se necesita (algunos servidores mandan originales enormes)
+function fitImg(u, kind) {
+  if (!u || typeof u !== 'string') return u;
+  const small = NATIVE || (document.body && document.body.classList.contains('phone'));
+  if (/image\.tmdb\.org\/t\/p\//.test(u)) return u.replace(/\/t\/p\/(original|w\d+)\//, '/t/p/' + (kind === 'bg' ? (small ? 'w780' : 'w1280') : (small ? 'w185' : 'w342')) + '/');
+  if (/images\.metahub\.space\/(poster|background)\//.test(u)) return u.replace(/\/(large|medium|small)\//, '/' + (kind === 'bg' ? (small ? 'medium' : 'large') : (small ? 'small' : 'medium')) + '/');
+  return u;
+}
 function img(src, alt, onFail) {
   const i = el('img'); i.alt = alt || ''; i.loading = 'lazy'; i.decoding = 'async';
+  src = fitImg(src, 'poster');
   if (onFail) i.onerror = onFail;
   if (src) i.src = src; else setTimeout(() => onFail && onFail(), 0);
   return i;
@@ -1029,8 +1043,12 @@ window.lzBack = () => goBack();
 // =====================================================================
 let view = 'vivo', pendingFocus = null;
 const built = {};
+const HEAVY = ['inicio', 'peliculas', 'series', 'anime', 'kids', 'buscar'];
 function go(v, focus = false) {
   if (v === 'vivo' || view === 'vivo') { if (!isFull() && pvMode === 'live' && v !== 'vivo') stopPlayback(); }
+  if (v !== view && HEAVY.includes(view) && view !== 'buscar') {
+    const old = $('v-' + view); if (old) { old.querySelectorAll('img').forEach((i) => { i.removeAttribute('src'); }); old.replaceChildren(); built[view] = false; }
+  }
   view = v;
   document.querySelectorAll('.nav').forEach((n) => n.classList.toggle('on', n.dataset.view === v));
   document.querySelectorAll('.view').forEach((s) => s.classList.toggle('on', s.id === 'v-' + v));
@@ -1158,7 +1176,7 @@ function setSpot(spot, it, now) {
   const run = () => {
     if (spot._it === it) return; spot._it = it;
     const bg = spot.querySelector('.bg');
-    const url = it.backdrop || it.poster;
+    const url = fitImg(it.backdrop || it.poster, 'bg');
     bg.classList.add('fade');
     const pre = new Image(); pre.onload = pre.onerror = () => { bg.style.backgroundImage = url ? 'url("' + url + '")' : ''; bg.classList.remove('fade'); }; pre.src = url || '';
     if (!url) pre.onload();
@@ -1181,7 +1199,12 @@ function toggleLib(it) {
   else { S.lib = [mini(it), ...(S.lib || [])].slice(0, 200); toast('Agregado a Mi lista ✓'); }
   save(); built.inicio = false;
 }
-const watchOf = (it) => (S.watch || {})[keyOf(it)];
+// Clave universal del título (IMDb / Kitsu): la misma película desde cualquier servidor o fila
+const canonOf = (it, id) => { const s = String(id || it.imdb || it.id || ''); let m = s.match(/^(tt\d+)/); if (!m && it.imdb) m = String(it.imdb).match(/^(tt\d+)/); if (m) return 'imdb:' + m[1]; m = s.match(/^(kitsu:\d+)/); return m ? m[1] : null; };
+const watchOf = (it) => { const W = S.watch || {}, c = canonOf(it); return (c && W[c]) || W[keyOf(it)]; };
+const watchKey = () => { const k = vodItem.canon || keyOf(vodItem.x); if (vodItem.canon && S.watch && keyOf(vodItem.x) !== k) delete S.watch[keyOf(vodItem.x)]; return k; };
+// Al volver del video, la ficha abierta se actualiza (muestra "Continuar")
+function refreshDetail() { if ($('det').hidden || !detData) return; const prev = detPrevFocus; openDetail(detData); detPrevFocus = prev; }
 let vodItem = null, lastSaveT = 0;
 function saveProgress(force) {
   if (!vodItem || pvMode !== 'vod') return;
@@ -1190,12 +1213,14 @@ function saveProgress(force) {
   if (!force && Date.now() - lastSaveT < 10000) return;
   lastSaveT = Date.now();
   S.watch = S.watch || {};
-  const k = keyOf(vodItem.x);
+  const k = watchKey();
   if (d && t / d > 0.93) { if (vodItem.ep) S.watch[k] = {it: mini(vodItem.x), ep: {s: vodItem.ep.s, e: vodItem.ep.e + 1}, t: 0, d: 0, at: Date.now(), next: true}; else delete S.watch[k]; }
   else S.watch[k] = {it: mini(vodItem.x), ep: vodItem.ep ? {s: vodItem.ep.s, e: vodItem.ep.e} : null, t: Math.floor(t), d: Math.floor(d), at: Date.now()};
   const keys = Object.keys(S.watch).sort((a, b) => S.watch[b].at - S.watch[a].at); keys.slice(40).forEach((x) => delete S.watch[x]);
   save(); built.inicio = false;
 }
+document.addEventListener('visibilitychange', () => { if (document.hidden && pvMode === 'vod') saveProgress(true); });
+addEventListener('pagehide', () => { if (pvMode === 'vod') saveProgress(true); });
 video.addEventListener('timeupdate', () => {
   saveProgress(false);
   const t = curTime(), on = pvMode === 'vod' && vodItem && vodItem.intro && !video.paused && t > 10 && t < 240;
@@ -1236,10 +1261,10 @@ video.addEventListener('ended', () => {
   if (vodItem.ep) offerNext(vodItem.x, vodItem.ep, true);
 });
 // La app de TV avisa hasta dónde se vio en el reproductor nativo
-window.lzProgress = (pos, dur, ended) => { if (!vodItem) return; if (ended && vodItem.ep) setTimeout(() => offerNext(vodItem.x, vodItem.ep, false), 300); const k = keyOf(vodItem.x); S.watch = S.watch || {};
+window.lzProgress = (pos, dur, ended) => { if (!vodItem) return; if (ended && vodItem.ep) setTimeout(() => offerNext(vodItem.x, vodItem.ep, false), 300); S.watch = S.watch || {}; const k = watchKey();
   if (dur && pos / dur > 0.93) { if (vodItem.ep) S.watch[k] = {it: mini(vodItem.x), ep: {s: vodItem.ep.s, e: vodItem.ep.e + 1}, t: 0, d: 0, at: Date.now(), next: true}; else delete S.watch[k]; }
   else if (pos > 20) S.watch[k] = {it: mini(vodItem.x), ep: vodItem.ep ? {s: vodItem.ep.s, e: vodItem.ep.e} : null, t: Math.floor(pos), d: Math.floor(dur), at: Date.now()};
-  save(); built.inicio = false; if (view === 'inicio' && $('det').hidden) go('inicio'); };
+  save(); built.inicio = false; if (view === 'inicio' && $('det').hidden) go('inicio'); refreshDetail(); };
 
 function mediaCard(it, spot) {
   const b = el('button', 'card'); b.type = 'button'; b._key = it.src + ':' + it.id;
@@ -1251,7 +1276,7 @@ function mediaCard(it, spot) {
   if (it.year) b.append(el('span', 'sub', [it.year, TYPE_ES[it.type]].join(' · ')));
   b.onclick = () => openDetail(it);
   if (spot) { b.onfocus = () => setSpot(spot, it); b.onmouseenter = () => setSpot(spot, it); }
-  b.addEventListener('focus', () => { clearTimeout(mediaCard.t); mediaCard.t = setTimeout(() => { if (document.activeElement === b && streamAddons().length) checkId(it).then((x) => x && prefetchStreams(x.type, x.id)).catch(() => {}); }, 900); });
+  if (!NATIVE && !document.body.classList.contains('phone')) b.addEventListener('focus', () => { clearTimeout(mediaCard.t); mediaCard.t = setTimeout(() => { if (document.activeElement === b && streamAddons().length) checkId(it).then((x) => x && prefetchStreams(x.type, x.id)).catch(() => {}); }, 1500); });
   return b;
 }
 function chCard(c, list, i) {
@@ -1621,8 +1646,13 @@ function streamInfo(s) {
   else if (/english|ingl[eé]s|🇬🇧|🇺🇸|\beng?\b/.test(l)) lang = 'eng';
   const q = /2160p|\b4k\b|uhd/.test(l) ? '4K' : /1080p/.test(l) ? '1080p' : /720p/.test(l) ? '720p' : /480p|360p|\bsd\b/.test(l) ? 'SD' : '';
   const gb = parseFloat((l.match(/(\d+(?:[.,]\d+)?)\s*gb/) || [])[1] || 0) || (parseFloat((l.match(/(\d+(?:[.,]\d+)?)\s*mb/) || [])[1] || 0) / 1024);
-  return (s._i = {lang, q, gb});
+  // Torrentio + debrid: [AD+] = ya está lista; [AD download] = todavía no (no reproduce hasta que el debrid la descarga)
+  const ready = /\[(ad|rd|pm|dl|tb|oc|ed|pp|pk)\+\]/.test(l) ? true : /\[(ad|rd|pm|dl|tb|oc|ed|pp|pk)[ _-]?download\]|\bdownload\]/.test(l) ? false : null;
+  const heavy = /\b(dv|dovi|dolby ?vision)\b/.test(l) ? 2 : /hevc|x265|h\.?265|10 ?bit|\bhdr/.test(l) ? 1 : 0;
+  return (s._i = {lang, q, gb, ready, heavy});
 }
+// Quita las que no están listas en el debrid si hay otras que sí
+function readyFilter(list) { const ok = list.filter((s) => streamInfo(s).ready !== false); return ok.length ? ok : list; }
 const langPref = () => S.langPref || (S.audioEs === false ? 'any' : 'lat');
 function langBonus(lang) {
   const p = langPref(); if (p === 'any') return 0;
@@ -1648,6 +1678,9 @@ function streamScore(s) {
   const u = (s.url || '').toLowerCase(), d = ((s.name || '') + ' ' + (s.title || '') + ' ' + (s.description || '')).toLowerCase();
   const inf = streamInfo(s), gb = inf.gb;
   let sc = langBonus(inf.lang) + qualBonus(inf.q);
+  if (inf.ready === false) sc += 30;   // no lista en AllDebrid: al final
+  else if (inf.ready === true) sc -= 1;
+  if (NATIVE && inf.heavy) sc += inf.heavy * 3;   // en la tele, Dolby Vision / HEVC 10 bits fallan seguido
   if (/\bcam\b|hdcam|telesync|\bts\b|camrip/.test(d)) sc += 6;
   if (gb > 15) sc += 2; else if (gb > 6) sc += 1;
   if (!NATIVE) {
@@ -1684,7 +1717,7 @@ async function playVod(x, ep, startAt, pick) {
   }
   const {type, id} = vodId(x, ep);
   if (!id) return toast('Este título no tiene un código para buscar videos.');
-  vodItem = {x, ep, intro: !!ep && !(startAt > 60)}; lastSaveT = 0; likeGenres(x);
+  vodItem = {x, ep, intro: !!ep && !(startAt > 60), canon: canonOf(x, id)}; lastSaveT = 0; likeGenres(x);
   if (NATIVE) return nativeVod(x, ep, adds, type, id, startAt, pick);
   const sess = ++vodSess;
   vodOpts = []; vodAll = []; vodFailed = new Set(); vodLabel = x.title + (ep ? ' · T' + ep.s + ' E' + ep.e : '');
@@ -1718,7 +1751,7 @@ async function playVod(x, ep, startAt, pick) {
   adds.forEach((a) => getStreams(a, type, id)
     .then((list) => { if (sess !== vodSess) return; vodAll.push(...list.filter((s) => /^https?:\/\//.test(s.url || '')).map((s) => ({...s, addon: a.name}))); vodAll.sort((p, q) => streamScore(p) - streamScore(q)); const add = list.filter(playable).map((s) => ({...s, addon: a.name})); add.forEach(check); vodOpts.push(...add); vodOpts.sort((p, q) => streamScore(p) - streamScore(q));
       if (pick) { const i = vodOpts.findIndex((o) => o.url === pick.url); if (i > 0) vodOpts.unshift(vodOpts.splice(i, 1)[0]); if (i >= 0 && vodOpts[0]._p === 'pending') vodOpts[0]._p = 'unknown'; }
-      else if (S.langOnly) { const keep = new Set(langFilter(vodOpts)); if (keep.size < vodOpts.length) vodOpts = vodOpts.filter((o) => keep.has(o) || o === vodCur); } })
+      else { const keep = new Set(readyFilter(S.langOnly ? langFilter(vodOpts) : vodOpts)); if (keep.size < vodOpts.length) vodOpts = vodOpts.filter((o) => keep.has(o) || o === vodCur); } })
     .catch(() => {}).finally(() => { pending--; if (sess === vodSess) pump(); }));
   vodCtx = {type, id}; vodCur = null; vodInfo = null; vodSub = null; vodSubList = null; vodResume = startAt || 0;
   addSubtitles(vodCtx);
@@ -1745,7 +1778,7 @@ async function nativeVod(x, ep, adds, type, id, startAt, pick) {
   let opts = pick && nativeLast && nativeLast.id === id ? nativeLast.opts.slice() : await gatherOpts(adds, type, id);
   nativeLast = {id, type, opts: opts.slice(), x, ep};
   if (pick) { const i = opts.findIndex((o) => o.url === pick.url); if (i > 0) opts.unshift(opts.splice(i, 1)[0]); }
-  else if (S.langOnly) opts = langFilter(opts);
+  else opts = readyFilter(S.langOnly ? langFilter(opts) : opts);
   if (sess !== vodSess || $('pick').hidden) return;
   if (!opts.length) { body.replaceChildren(el('p', 'note', 'Tus complementos no encontraron video para este título.')); return; }
   let sub = '', subLang = '';
@@ -1788,10 +1821,12 @@ function markDead(x) {
   const key = x.src + ':' + x.id; AV[key] = {ok: false, t: Date.now()}; saveAV();
   document.querySelectorAll('.card').forEach((c) => { if (c._key === key && c !== document.activeElement) c.remove(); });
 }
-window.lzFailed = () => { if (!vodItem) return; logErr('No abrió en la tele: ' + vodItem.x.title); if (DEBRID && DEBRID.st === 'bad') { toast('⚠️ ' + DEBRID.msg, 12000); return; } markDead(vodItem.x); toast('Este título no se pudo reproducir; ya no se mostrará.'); };
+window.lzFailed = () => { if (!vodItem) return; logErr('No abrió en la tele: ' + vodItem.x.title); if (DEBRID && DEBRID.st === 'bad') { toast('⚠️ ' + DEBRID.msg, 12000); return; }
+  if (nativeLast && nativeLast.opts.length && nativeLast.opts.every((o) => streamInfo(o).ready === false)) { toast('⏳ Esta película todavía no está lista en tu AllDebrid. Vuelve a intentar en unos minutos.', 10000); return; } markDead(vodItem.x); toast('Este título no se pudo reproducir; ya no se mostrará.'); };
 function vodAllFailed() {
   logErr('No abrió: ' + (vodItem ? vodItem.x.title + (vodItem.ep ? ' T' + vodItem.ep.s + 'E' + vodItem.ep.e : '') : '?') + ' (' + vodOpts.length + ' opciones)');
   if (DEBRID && DEBRID.st === 'bad') { msg('⚠️ ' + DEBRID.msg, [btn('btn pri', 'Regresar', exitFull)]); return; }
+  if (vodOpts.length && vodOpts.every((o) => streamInfo(o).ready === false)) { msg('⏳ Esta película todavía no está lista en tu AllDebrid. Ya le pedimos que la descargue: vuelve a intentar en unos minutos.', [btn('btn pri', 'Regresar', exitFull)]); return; }
   if (IS_IOS && !vodOpts.length && vodAll.length) {   // en iPhone: solo hay MKV → VLC
     const best = vodAll[0], b2 = [btn('btn pri', '▶  Abrir en VLC', () => openExternal(best.url)), btn('btn', 'Elegir versión', () => openPick('Versiones', [optPicker(vodAll, {onPick: (s) => { closePick(); openExternal(s.url); }})])), btn('btn', 'Regresar', exitFull)];
     msg('Este título viene en un formato que el iPhone no reproduce (MKV). Ábrelo en VLC: se ve con audio y subtítulos.', b2); setTimeout(() => focusEl(b2[0]), 50); return;
@@ -1806,7 +1841,8 @@ function vodAllFailed() {
 }
 // Lista de opciones con filtros de idioma y calidad (PC y TV)
 function optPicker(opts, {cur, failed, onPick}) {
-  const optF = {lang: '', q: ''};
+  const optF = {lang: '', q: '', ready: true};
+  const nNot = opts.filter((s) => streamInfo(s).ready === false).length, nReady = opts.length - nNot;
   const wrap = el('div', 'optp'), fl = el('div', 'chips'), fq = el('div', 'chips'), list = el('div', 'optl');
   const count = (k, v) => opts.filter((s) => streamInfo(s)[k] === v).length;
   const langs = ['lat', 'esp', 'es', 'multi', 'eng', 'otro'].filter((k) => count('lang', k));
@@ -1818,11 +1854,12 @@ function optPicker(opts, {cur, failed, onPick}) {
     [['', 'Todos los idiomas'], ...langs.map((k) => [k, LANG_OPT[k] + ' (' + count('lang', k) + ')'])].forEach(([k, n]) => fl.append(btn('chip' + (optF.lang === k ? ' on' : ''), n, () => { optF.lang = k; draw(); focusEl(fl.querySelector('.chip.on')); })));
     if (quals.length > 1) [['', 'Toda calidad'], ...quals.map((k) => [k, k + ' (' + count('q', k) + ')'])].forEach(([k, n]) => fq.append(btn('chip' + (optF.q === k ? ' on' : ''), n, () => { optF.q = k; draw(); focusEl(fq.querySelector('.chip.on')); })));
     list.replaceChildren();
-    const shown = opts.filter((s) => (!optF.lang || streamInfo(s).lang === optF.lang) && (!optF.q || streamInfo(s).q === optF.q));
+    const shown = opts.filter((s) => (!optF.lang || streamInfo(s).lang === optF.lang) && (!optF.q || streamInfo(s).q === optF.q) && (!optF.ready || streamInfo(s).ready !== false));
+    if (nReady && nNot) { const rb = btn('chip', optF.ready ? '⏳ Ver también ' + nNot + ' no listas' : '⚡ Solo las listas (' + nReady + ')', () => { optF.ready = !optF.ready; draw(); focusEl(fq.querySelector('.chip:last-child') || fl.querySelector('.chip.on')); }); fq.append(rb); }
     if (!shown.length) list.append(el('p', 'note', 'No hay opciones con ese filtro.'));
     shown.slice(0, 60).forEach((s) => {
       const inf = streamInfo(s), o = btn('opt' + (s === cur ? ' cur' : '')), tx = el('div');
-      const top = [LANG_OPT[inf.lang], inf.q || 'Calidad ?', inf.gb ? (inf.gb >= 1 ? inf.gb.toFixed(1) + ' GB' : Math.round(inf.gb * 1024) + ' MB') : ''].filter(Boolean).join('  ·  ');
+      const top = [inf.ready === true ? '⚡ Lista' : inf.ready === false ? '⏳ No lista' : '', LANG_OPT[inf.lang], inf.q || 'Calidad ?', inf.gb ? (inf.gb >= 1 ? inf.gb.toFixed(1) + ' GB' : Math.round(inf.gb * 1024) + ' MB') : ''].filter(Boolean).join('  ·  ');
       tx.append(el('div', null, top + (s === cur ? '  ·  viendo ahora' : '')), el('small', null, ((s.addon ? s.addon + ' · ' : '') + (s.title || s.name || '')).replace(/\n/g, ' · ').slice(0, 150)));
       o.append(tx, el('span', null, failed && failed.has(s) ? '✗' : s === cur ? '✓' : '▶'));
       o.onclick = () => onPick(s);
@@ -2362,6 +2399,8 @@ function goFull() {
   else hint('Regresar  Salir');
 }
 function exitFull() {
+  const wasVod = pvMode === 'vod' && vodItem;
+  if (wasVod) saveProgress(true);
   setTimeout(pump, 500);
   pv.classList.remove('full'); $('panel').hidden = true; $('osd').classList.remove('show');
   if (pvMode !== 'live' || view !== 'vivo') { if (pvMode !== 'live' || view !== 'vivo') stopPlayback(); }
@@ -2371,6 +2410,7 @@ function exitFull() {
   const onRow = pvMode === 'live' && view === 'vivo' && $('clist').querySelector('.chrow.on');
   if (onRow) focusEl(onRow); else if (fullPrevFocus && visible(fullPrevFocus)) focusEl(fullPrevFocus); else focusEl(firstContent(cands()));
   video.controls = false;
+  if (wasVod) setTimeout(refreshDetail, 50);
 }
 // ◀ desde los canales regresa a la categoría elegida (no a la primera)
 document.addEventListener('keydown', (e) => {
