@@ -39,6 +39,7 @@
   .tbtn{all:unset;cursor:pointer;width:2.8rem;height:2.8rem;border-radius:50%;display:grid;place-items:center;color:#DCE2EC}
   .tbtn svg,.tnet svg{width:1.45rem;height:1.45rem}
   .tbtn:focus,body:not(.kbd) .tbtn:hover{background:var(--accent);color:#111}
+  .tbtn.tcode{width:auto;padding:0 1rem;border-radius:1.4rem;gap:.5rem;display:inline-flex;font-weight:800;background:rgba(245,184,75,.16);color:var(--accent)}
   .tnet{width:2.4rem;display:grid;place-items:center;color:#DCE2EC}.tnet.off{color:var(--bad)}
   .clock{font-weight:800;font-size:1.35rem;padding:0 .4rem;text-shadow:0 2px 10px #000}
   .head{padding:2.6rem 3rem 1.2rem;display:flex;align-items:flex-end;gap:1.6rem;flex-wrap:wrap}
@@ -281,6 +282,7 @@
 
   <main id="main">
     <div class="topbar" id="topbar">
+      <button class="tbtn tcode" id="tbCode" title="Mi código"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="8" cy="15" r="4"/><path d="M11 12l9-9M17 6l3 3M14 9l2 2"/></svg><span>Código</span></button>
       <button class="tbtn" data-go="buscar" title="Buscar"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg></button>
       <button class="tbtn" id="tbHist" title="Continuar viendo"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5M12 7v5l3 2"/></svg></button>
       <button class="tbtn" id="tbFav" title="Favoritos"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l2.6 5.6 6.1.7-4.5 4.2 1.2 6L12 16.6 6.6 19.5l1.2-6-4.5-4.2 6.1-.7z"/></svg></button>
@@ -468,7 +470,7 @@ function welcome() {
     try { await importFromPc(h); S.welcomed = true; save(); closePick(); toast('Configuración traída de tu computadora ✓'); refreshAddons(); if (view === 'vivo') { renderSources(); openSource(S.src); } }
     catch { st.textContent = 'Encontré tu computadora pero no tiene configuración guardada.'; }
   }));
-  b.append(btn('btn', 'Ahora no', () => { S.welcomed = true; save(); closePick(); toast('Puedes hacerlo después en Ajustes → Mi configuración en un link'); }));
+  b.append(btn('btn', 'Ahora no', () => { S.welcomeSkip2 = true; save(); closePick(); toast('Puedes hacerlo después en Ajustes → Mi configuración en un link'); }));
   openPick('Bienvenido a LZ-PLUS', [info, inp, b, st]);
   inp.onkeydown = (e) => { if (e.key === 'Enter') { e.preventDefault(); go1.click(); } };
 }
@@ -686,6 +688,7 @@ function go(v, focus = false) {
 document.querySelectorAll('.nav').forEach((n) => { n.onclick = () => go(n.dataset.view, true); });
 document.querySelectorAll('[data-go]').forEach((n) => { n.onclick = () => go(n.dataset.go, true); });
 $('tbHist').onclick = () => { go('inicio', true); };
+$('tbCode').onclick = () => welcome();
 $('tbFav').onclick = $('tvFav').onclick = () => { if (view !== 'vivo') go('vivo'); liveGroup = '★'; if (liveAll.length) { renderChannels(); focusEl($('clist').querySelector('.chrow')); } toast(S.favs.length ? 'Tus canales favoritos' : 'Aún no tienes favoritos: en un canal, entra a Categorías → ★'); };
 $('tvCats').onclick = () => openCats();
 $('slot').onclick = (e) => { if (!isFull() && curCh) goFull(); };
@@ -2079,6 +2082,10 @@ function buildSettings() {
   const h = el('div', 'head'); h.append(el('h1', 'disp', 'Ajustes'), el('p', null, 'Versión ' + APP_VERSION + (NATIVE ? ' · Android TV' : ''))); v.append(h);
   if (S.pin && !unlocked) return lockScreen(v, 'Ajustes bloqueados');
   const w = el('div', 'wrap'); v.append(w);
+  const bC = el('div', 'box'); bC.append(el('h2', 'disp', 'Mi código'), el('p', 'note', S.cfgUrl ? 'Configuración en uso: ' + (S.cfgUrl.startsWith(CODE_BASE) ? 'código ' + S.cfgUrl.slice(CODE_BASE.length).replace('.json', '') : 'link') : 'Escribe tu código para traer tus complementos y servidores.'));
+  const cIn = el('input'); cIn.placeholder = 'Tu código, ej. 482913'; cIn.inputMode = 'numeric';
+  const cB = el('div', 'btns'); cB.append(btn('btn pri', 'Entrar con este código', async () => { if (cIn.value.trim().length < 3) return toast('Escribe tu código'); try { await importFromUrl(fixLink(cIn.value)); refreshAddons(); buildSettings(); } catch { toast('No encontré ese código. Revisa los números.'); } }));
+  bC.append(cIn, cB); w.append(bC);
   const chips = (opts, cur, set) => { const c = el('div', 'chips'); opts.forEach(([k, n]) => c.append(btn('chip' + (k === cur ? ' on' : ''), n, (e) => { set(k); c.querySelectorAll('.chip').forEach((x) => x.classList.toggle('on', x === e.currentTarget)); }))); return c; };
   const resetMeta = () => { cache.clear(); ['inicio', 'peliculas', 'series', 'anime', 'buscar'].forEach((k) => built[k] = false); loadTmdbGenres(); };
   // Idioma
@@ -2206,7 +2213,7 @@ const proxyReady = detectProxy();
 Promise.race([proxyReady, sleep(1800)]).then(() => { netState(); built.vivo = true; buildLive(); });
 Promise.allSettled([proxyReady, loadTmdbGenres()]).then(async () => {
   if (S.cfgUrl) { try { await importFromUrl(S.cfgUrl, true); refreshAddons(); } catch {} }
-  else if (!S.welcomed && !streamAddons().length && !(PROXY && !NATIVE && S.servers.length > 1)) { setTimeout(welcome, 1200); return; }
+  if (!streamAddons().length && !S.welcomeSkip2 && !(PROXY && !NATIVE && S.servers.length > 1)) { setTimeout(welcome, 1200); return; }
   if (NATIVE && !S.cfgImported && !streamAddons().length) {   // primera vez en la TV: trae tus complementos de la computadora (por detrás)
     try { const h = await withTimeout(findPc(), 30000); if (h) { await importFromPc(h); toast('Tus complementos se trajeron de tu computadora ✓'); refreshAddons(); if (view === 'vivo') { renderSources(); openSource(S.src); } } }
     catch {}
