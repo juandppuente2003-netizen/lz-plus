@@ -28,3 +28,5 @@ Descarga `LZ-PLUS-Windows-instalador.exe` desde **Releases**. Trae adentro el in
 - `lz-plus.html` — la app (también funciona en un navegador).
 - `android/` — la app de Android TV (abre la app y usa un reproductor nativo que lee MKV, HEVC, etc.).
 - `lz-servidor.js`, `INICIAR-LZ-PLUS.bat`, `PERMITIR-EN-RED.bat` — opcional, solo si usas la app en un navegador.
+
+<!-- firma fija activada -->
