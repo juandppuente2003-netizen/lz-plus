@@ -805,30 +805,39 @@ async function loadTmdbGenres() {
   } catch {}
 }
 const gname = (id) => tmdbGen[id] || TMDB_GEN[id] || '';
+// ---------------- Filtro de contenido para adultos (18+) ----------------
+// Viene activado. Solo se quita en Ajustes → Opciones avanzadas, con PIN. En perfiles de Niños siempre está activo.
+const ADULT_RE = /(\bxxx\b|porn|\bhentai\b|onlyfans|brazzers|bangbros|playboy|hustler|penthouse|dorcel|\bvivid\b|redlight|\bnsfw\b|\bmilf\b|\bjav\b|er[oó]ti[ck]|erotik|para adultos|\badult(o|os|as|e)?\b|\+ ?18\b|\b18 ?\+|\(18\)|\bhot ?(tv|club|channel)\b|venus ?tv|private ?(tv|spice)|\bspice\b|\bxtsy\b)/i;
+const adultBlocked = () => S.adultOk !== true || (typeof isKids === 'function' && S.profiles && isKids());
+const isAdultText = (t) => { t = String(t || ''); return ADULT_RE.test(t) && !/adult swim|young adult/i.test(t); };
+const isAdultItem = (x) => !!x && (x.adult === true || isAdultText(x.title) || (x.genres || []).some(isAdultText) || /\b(porn\w*|xxx|hentai)\b/i.test(x.overview || ''));
+const okItem = (x) => !adultBlocked() || !isAdultItem(x);
+const CH_ADULT_RE = /\b(sexy?|sexo|hot|caliente|desire|pleasure|xtreme ?tv)\b/i;
+const okChannel = (c) => { if (!adultBlocked()) return true; const t = (c.group || '') + ' | ' + (c.name || ''); return !isAdultText(t) && !CH_ADULT_RE.test(t); };
 function fromTmdb(r, type, mt) {
   mt = r.media_type || mt;
   const isAnime = type === 'anime' || ((r.genre_ids || []).includes(16) && r.original_language === 'ja');
   return {src: 'tmdb', id: r.id, mt, type: isAnime ? 'anime' : mt === 'movie' ? 'movie' : 'series',
     title: r.title || r.name, poster: IMG(r.poster_path), backdrop: IMG(r.backdrop_path, 'w1280') || IMG(r.poster_path, 'w780'),
     year: (r.release_date || r.first_air_date || '').slice(0, 4), rating: r.vote_average ? r.vote_average.toFixed(1) : '',
-    overview: r.overview || '', genres: (r.genre_ids || []).map(gname).filter(Boolean)};
+    overview: r.overview || '', genres: (r.genre_ids || []).map(gname).filter(Boolean), adult: !!r.adult};
 }
 function fromStremio(m, type, src) {
   return {src, id: m.id, type, stype: m.type, title: m.name, poster: m.poster || null, backdrop: m.background || m.poster || null,
     year: String(m.releaseInfo || m.year || '').slice(0, 4), rating: m.imdbRating || '', overview: m.description || '',
-    genres: (m.genres || []).map((g) => GEN_ES[g] || g).slice(0, 3), logo: m.logo || null};
+    genres: (m.genres || []).map((g) => GEN_ES[g] || g).slice(0, 3), logo: m.logo || null, adult: (m.genres || []).some(isAdultText)};
 }
 async function tmList(path, type, mt) {
   const j = await J(T(path, '&include_adult=false'));
-  return (j.results || []).filter((r) => r.poster_path && (!r.media_type || r.media_type === 'movie' || r.media_type === 'tv')).map((r) => fromTmdb(r, type, mt));
+  return (j.results || []).filter((r) => r.poster_path && (!r.media_type || r.media_type === 'movie' || r.media_type === 'tv')).map((r) => fromTmdb(r, type, mt)).filter(okItem);
 }
 async function cineList(type, path) {
   const j = await J(CINE + '/catalog/' + type + '/' + path + '.json');
-  return (j.metas || []).filter((m) => m.poster).map((m) => fromStremio(m, type === 'movie' ? 'movie' : 'series', 'cine'));
+  return (j.metas || []).filter((m) => m.poster).map((m) => fromStremio(m, type === 'movie' ? 'movie' : 'series', 'cine')).filter(okItem);
 }
 async function kitsuList(path) {
   const j = await J(KITSU + '/catalog/anime/' + path + '.json');
-  return (j.metas || []).filter((m) => m.poster).map((m) => fromStremio(m, 'anime', 'kitsu'));
+  return (j.metas || []).filter((m) => m.poster).map((m) => fromStremio(m, 'anime', 'kitsu')).filter(okItem);
 }
 const g = (x) => encodeURIComponent(x);
 function rowsFor(v) {
@@ -1025,7 +1034,7 @@ function buildHome() {
   spot._it = null;
   // Canales: seguir viendo y favoritos
   const live = (title, list) => { if (!list.length) return; const r = makeRow(title); r._strip.replaceChildren(...list.map((c, i) => chCard(c, list, i))); rows.append(r); };
-  const cont = Object.values(S.watch || {}).sort((a, b) => b.at - a.at).map((w) => w.it);
+  const cont = Object.values(S.watch || {}).sort((a, b) => b.at - a.at).map((w) => w.it).filter(okItem);
   if (cont.length) { const r = makeRow('Continuar viendo'); r._strip.replaceChildren(...cont.map((it) => mediaCard(it, spot))); rows.append(r); }
   if ((S.lib || []).length) { const r = makeRow('Mi lista'); r._strip.replaceChildren(...S.lib.map((it) => mediaCard(it, spot))); rows.append(r); }
   live('Seguir viendo · En vivo', S.recents);
@@ -1188,7 +1197,7 @@ async function openDetail(it) {
     rows.append(sr, epRow);
     loadEps(x, x.seasons[0].n, epRow);
   }
-  if (x.similar?.length) { const r = makeRow('Títulos parecidos'); r._strip.replaceChildren(...x.similar.map((s) => mediaCard(s))); rows.append(r); }
+  if (x.similar?.length) { const r = makeRow('Títulos parecidos'); r._strip.replaceChildren(...x.similar.filter(okItem).map((s) => mediaCard(s))); rows.append(r); }
   setTimeout(() => focusEl(play), 30);
 }
 async function loadEps(x, n, row) {
@@ -1276,6 +1285,7 @@ function addonCats(types, forSearch) {
     if (a.kind !== 'addon' || !a.manifest?.catalogs) continue;
     for (const c of a.manifest.catalogs) {
       if (types && !types.includes(mapType(c.type))) continue;
+      if (adultBlocked() && (isAdultText(c.name) || isAdultText(c.id) || isAdultText((a.manifest && a.manifest.name) || ''))) continue;
       if (forSearch ? !c.search : c.required) continue;
       out.push({a, c});
     }
@@ -1284,7 +1294,7 @@ function addonCats(types, forSearch) {
 }
 async function addonList(a, c, extra) {
   const j = await J(addonBase(a) + '/catalog/' + c.type + '/' + encodeURIComponent(c.id) + (extra ? '/' + extra : '') + '.json');
-  return (j.metas || []).filter((m) => m.poster || m.name).map((m) => ({...fromStremio(m, mapType(m.type || c.type), 'addon'), addon: a.id, stype: m.type || c.type}));
+  return (j.metas || []).filter((m) => m.poster || m.name).map((m) => ({...fromStremio(m, mapType(m.type || c.type), 'addon'), addon: a.id, stype: m.type || c.type})).filter(okItem);
 }
 function addonRows(types) {
   return addonCats(types).slice(0, 10).map(({a, c}) => ({title: (c.name || 'Catálogo') + ' · ' + (a.manifest.name || a.name), load: () => addonList(a, c)}));
@@ -1644,6 +1654,7 @@ function loadSource(id) {
     const seen = new Set(); let hidden = 0;
     const channels = raw.map((x, i) => mkChannel(x, i, src)).filter((c) => {
       if (seen.has(c.url)) return false; seen.add(c.url);
+      if (!okChannel(c)) return false;
       if (!PROXY && !NATIVE && (c.hdr || (location.protocol === 'https:' && c.url.startsWith('http:')))) { hidden++; return false; }
       return true;
     });
@@ -2479,6 +2490,21 @@ function buildSettings() {
     btn('btn danger', 'Borrar todo el historial', () => confirmBox('¿Borrar todo el historial?', 'No se puede deshacer.', 'Borrar historial', () => clearHist('todo')))
   );
   w.append(bH);
+  // Opciones avanzadas (escondidas): contenido para adultos
+  const bAv = el('div', 'box'); const avIn = el('div'); avIn.hidden = !buildSettings.adv;
+  const avBtn = btn('btn sm', buildSettings.adv ? 'Ocultar opciones avanzadas' : 'Opciones avanzadas', () => { buildSettings.adv = !buildSettings.adv; buildSettings(); });
+  bAv.append(avBtn, avIn);
+  const st18 = S.adultOk === true ? 'Permitido' : 'Bloqueado';
+  avIn.append(el('h2', 'disp', 'Contenido para adultos (18+)'), el('p', 'note', 'Estado: ' + st18 + '. Con el filtro activo se ocultan películas, series, catálogos y canales para adultos (pornografía). En perfiles de Niños siempre está bloqueado.'));
+  const ab = el('div', 'btns');
+  const after18 = () => { srcCache.clear(); AV = {}; Object.keys(built).forEach((k) => built[k] = false); buildSettings(); };
+  if (S.adultOk === true) ab.append(btn('btn pri', 'Activar filtro (bloquear 18+)', () => { S.adultOk = false; save(); toast('Contenido para adultos bloqueado ✓'); after18(); }));
+  else ab.append(btn('btn danger', 'Permitir contenido 18+', () => {
+    const allow = () => confirmBox('¿Permitir contenido para adultos?', 'Se mostrará contenido 18+ en este aparato (excepto en perfiles de Niños).', 'Permitir', () => { S.adultOk = true; save(); toast('Contenido 18+ permitido'); after18(); });
+    if (S.pin) askPin('PIN para permitir 18+', allow);
+    else askPin('Crea un PIN para proteger esta opción', (p) => { S.pin = p; unlocked = true; save(); allow(); }, {create: true});
+  }));
+  avIn.append(ab); w.append(bAv);
   const b5 = el('div', 'box'); b5.append(el('h2', 'disp', 'Restablecer'), el('p', 'note', 'Borra servidores, favoritos, clave y PIN de este aparato.'));
   b5.append(btn('btn danger', 'Borrar todo', () => confirmBox('¿Borrar todo?', 'No se puede deshacer.', 'Borrar todo', () => { localStorage.removeItem(KEY); location.reload(); })));
   w.append(b5);
