@@ -238,6 +238,18 @@
 
   /* ---------- Ficha ---------- */
   .layer{position:fixed;top:0;right:0;bottom:0;left:0;z-index:40;background:var(--bg);overflow-y:auto;overflow-x:hidden}
+  .layer.gridl{z-index:38}
+  .gridh{position:sticky;top:0;z-index:2;display:flex;align-items:center;gap:1.2rem;padding:1.4rem 3rem;background:linear-gradient(180deg,var(--bg) 70%,rgba(7,6,14,0))}
+  .gridh h2{margin:0;font-size:2rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .gridh small{color:var(--mut);font-weight:600}
+  .gridv{display:grid;grid-template-columns:repeat(auto-fill,minmax(11.5rem,1fr));gap:1.6rem 1.1rem;padding:.6rem 3rem 4rem}
+  .gridv .card{width:auto}
+  .gridend{grid-column:1/-1;text-align:center;color:var(--mut);padding:1rem}
+  .card.more .pi{display:grid;place-items:center;background:linear-gradient(160deg,#1d1640,#100c22);border:1px dashed rgba(163,59,255,.55)}
+  .card.more .pi b{font-size:1.25rem;text-align:center;line-height:1.4;padding:0 .8rem}
+  body.phone .gridh{padding:calc(.8rem + env(safe-area-inset-top,0px)) 1rem .8rem}
+  body.phone .gridh h2{font-size:1.4rem}
+  body.phone .gridv{grid-template-columns:repeat(auto-fill,minmax(7.4rem,1fr));gap:1rem .6rem;padding:.4rem 1rem calc(5rem + env(safe-area-inset-bottom,0px))}
   .layer::-webkit-scrollbar{width:0}
   .det-bg{position:absolute;top:0;left:0;right:0;height:88vh;background:#0B0F1A center 20%/cover no-repeat}
   .det-bg::after{content:'';position:absolute;top:0;right:0;bottom:0;left:0;background:linear-gradient(90deg,var(--bg) 0%,rgba(6,8,15,.9) 32%,rgba(6,8,15,.3) 70%,rgba(6,8,15,.15)),linear-gradient(0deg,var(--bg) 0%,transparent 50%)}
@@ -474,6 +486,7 @@
   </main>
 </div>
 
+<div class="layer gridl" id="grid" hidden></div>
 <div class="layer" id="det" hidden></div>
 <div id="gate" hidden></div>
 <div id="saver" hidden></div>
@@ -847,10 +860,10 @@ function fillFiltered(row, items, mk, spot, firstToSpot) {
   if (firstToSpot && spot && (!spot._it || spot._it._placeholder)) setSpot(spot, items[0], true);
   const ae = document.activeElement;
   if (row.closest('.view.on') && $('det').hidden && !isFull() && $('pick').hidden && (pendingFocus === view || !ae || ae === document.body) && (!ae || ae === document.body || ae.closest('#rail') || ae.closest('.spot'))) { pendingFocus = null; focusEl(cards[0]); }
-  let done = 0, yes = 0;
-  const upd = () => { note.textContent = done < items.length ? 'Revisando cuáles se pueden ver… ' + done + '/' + items.length : yes + (yes === 1 ? ' disponible' : ' disponibles'); };
+  let done = 0, yes = 0, asked = 0;
+  const upd = () => { note.textContent = asked > done ? 'Revisando cuáles se pueden ver…' : done ? yes + (yes === 1 ? ' disponible' : ' disponibles') + (done < items.length ? ' de las revisadas' : '') : ''; };
   upd();
-  items.forEach((it, i) => limit(() => isAvailable(it)).then((ok) => {
+  items.forEach((it, i) => watchCard(cards[i], () => { asked++; upd(); limit(() => isAvailable(it)).then((ok) => {
     done++; const card = cards[i];
     if (ok === true) { yes++; card.querySelector('.pi')?.append(el('span', 'ok-b', '✓ Disponible')); }
     else if (ok === false && card !== document.activeElement) {
@@ -859,8 +872,41 @@ function fillFiltered(row, items, mk, spot, firstToSpot) {
       if (!strip.querySelector('.card') && row.isConnected) row.remove();
     }
     upd();
-  }));
+  }); }));
 }
+// ---------------- "Ver todo": cuadrícula con todo el catálogo (se carga conforme bajas) ----------------
+let gridPrevFocus = null, gridSess = 0;
+function openGrid(title, items, pager) {
+  gridPrevFocus = document.activeElement;
+  const sess = ++gridSess, g = $('grid'); g.hidden = false; g.scrollTop = 0; g.replaceChildren();
+  const head = el('div', 'gridh'), back = btn('btn sm', '◀ Regresar', closeGrid), h = el('h2', 'disp', title), cnt = el('small');
+  head.append(back, h, cnt);
+  const grid = el('div', 'gridv'), end = el('div', 'gridend', 'Cargando…');
+  g.append(head, grid, end);
+  const all = items.slice(), seen = new Set(all.map((x) => x.src + ':' + x.id));
+  let drawn = 0, loading = false, noMore = !pager;
+  const chunk = NATIVE || document.body.classList.contains('phone') ? 24 : 40;
+  const check = filterOn();
+  const draw = async () => {
+    if (sess !== gridSess || loading) return;
+    if (drawn >= all.length && !noMore) {   // pide la siguiente página al servidor
+      loading = true; end.textContent = 'Cargando más…';
+      try { const nx = (await pager(all.length)).filter((x) => !seen.has(x.src + ':' + x.id)); nx.forEach((x) => seen.add(x.src + ':' + x.id)); if (!nx.length) noMore = true; all.push(...nx); } catch (e) { noMore = true; }
+      loading = false; if (sess !== gridSess) return;
+    }
+    const part = all.slice(drawn, drawn + chunk); drawn += part.length;
+    part.forEach((it) => { const c = mediaCard(it); grid.append(c);
+      if (check) watchCard(c, () => limit(() => isAvailable(it)).then((ok) => { if (ok === true) c.querySelector('.pi')?.append(el('span', 'ok-b', '✓ Disponible')); else if (ok === false && c !== document.activeElement) c.remove(); })); });
+    cnt.textContent = drawn + (noMore && drawn >= all.length ? '' : '+') + ' títulos';
+    end.textContent = drawn >= all.length && noMore ? (drawn ? 'Eso es todo' : 'Sin títulos') : '';
+    if (part.length && !grid.querySelector('.card:focus') && document.activeElement === back) {}
+  };
+  const io = window.IntersectionObserver ? new IntersectionObserver((es) => { if (es.some((e) => e.isIntersecting)) draw(); }, {root: g, rootMargin: '600px'}) : null;
+  draw().then(() => { if (io) io.observe(end); focusEl(grid.querySelector('.card') || back); });
+  if (!io) g.onscroll = () => { if (g.scrollTop + g.clientHeight > g.scrollHeight - 800) draw(); };
+  g._io = io;
+}
+function closeGrid() { gridSess++; const g = $('grid'); if (g._io) g._io.disconnect(); g.hidden = true; g.replaceChildren(); if (gridPrevFocus && visible(gridPrevFocus)) focusEl(gridPrevFocus); }
 
 function clock() { const d = new Date(); $('clock').textContent = d.toLocaleTimeString('es-MX', {hour: '2-digit', minute: '2-digit'}); }
 
@@ -875,6 +921,7 @@ function scope() {
   if (!$('pick').hidden) return $('pick');
   if (isFull()) return pv;
   if (!$('det').hidden) return $('det');
+  if (!$('grid').hidden) return $('grid');
   return $('app');
 }
 function visible(e) {
@@ -968,6 +1015,7 @@ function goBack() {
   if (!$('pick').hidden) return closePick();
   if (isFull()) { if (!$('panel').hidden) { $('panel').hidden = true; pv.focus(); return; } return exitFull(); }
   if (!$('det').hidden) return closeDetail();
+  if (!$('grid').hidden) return closeGrid();
   const a = document.activeElement;
   if (!a || !a.closest('#rail')) return focusEl(document.querySelector('.nav.on'));
   if (view !== 'vivo') go('vivo');
@@ -1214,6 +1262,18 @@ function chCard(c, list, i) {
   return b;
 }
 function skeleton(n = 8) { return Array.from({length: n}, () => { const s = el('div', 'card sk'); s.append(el('div', 'pi')); return s; }); }
+// Filas más ligeras: se muestran las primeras y el resto va en "Ver todo"
+const ROW_MAX = () => (NATIVE || document.body.classList.contains('phone')) ? 20 : 30;
+function moreCard(title, items, pager) {
+  const b = el('button', 'card more'); b.type = 'button';
+  const pi = el('div', 'pi'); pi.append(el('b', null, 'Ver todo →'));
+  b.append(pi, el('span', 'ct', title.split(' · ')[0]), el('span', 'sub', items.length + (pager ? '+' : '') + ' títulos'));
+  b.onclick = () => openGrid(title, items, pager);
+  return b;
+}
+// Revisa si se puede ver solo cuando la carátula aparece en pantalla (no cientos a la vez)
+const cardIO = window.IntersectionObserver ? new IntersectionObserver((es) => es.forEach((e) => { if (e.isIntersecting && e.target._chk) { const f = e.target._chk; e.target._chk = null; cardIO.unobserve(e.target); f(); } }), {rootMargin: '250px'}) : null;
+function watchCard(card, run) { if (cardIO) { card._chk = run; cardIO.observe(card); } else run(); }
 function makeRow(title, sub) {
   const r = el('div', 'row'); const h = el('h3', 'disp', title); if (sub) h.append(el('small', null, sub));
   const s = el('div', 'strip'); s.append(...skeleton());
@@ -1228,8 +1288,11 @@ async function fillRow(row, loader, spot, firstToSpot) {
   try {
     const items = await loader();
     if (!items.length) { row.remove(); return []; }
-    if (filterOn()) { fillFiltered(row, items, (it) => mediaCard(it, spot), spot, firstToSpot); return items; }
-    row._strip.replaceChildren(...items.map((it) => mediaCard(it, spot)));
+    const title = (row.querySelector('h3') || {}).firstChild ? row.querySelector('h3').firstChild.textContent : '';
+    const shown = items.slice(0, ROW_MAX()), more = items.length > shown.length || loader.pager ? moreCard(title, items, loader.pager) : null;
+    if (filterOn()) { fillFiltered(row, shown, (it) => mediaCard(it, spot), spot, firstToSpot); if (more) row._strip.append(more); return items; }
+    row._strip.replaceChildren(...shown.map((it) => mediaCard(it, spot)));
+    if (more) row._strip.append(more);
     if (firstToSpot && spot && !spot._it) setSpot(spot, items[0], true);
     const ae = document.activeElement;
     if (row.closest('.view.on') && $('det').hidden && !isFull() && $('pick').hidden && (pendingFocus === view || !ae || ae === document.body) && (!ae || ae === document.body || ae.closest('#rail') || ae.closest('.spot'))) {
@@ -1491,6 +1554,7 @@ async function readManifest(s) {
   s.manifest = {name: m.name, description: m.description, logo: m.logo, version: m.version, resources: m.resources, types: m.types,
     idPrefixes: m.idPrefixes, catalogs: (m.catalogs || []).map((c) => ({type: c.type, id: c.id, name: c.name,
       search: (c.extra || []).some((e) => e.name === 'search') || (c.extraSupported || []).includes('search'),
+      skip: (c.extra || []).some((e) => e.name === 'skip') || (c.extraSupported || []).includes('skip') || (!c.extra && !c.extraSupported ? undefined : false),
       required: (c.extra || []).some((e) => e.isRequired && e.name !== 'skip') || (c.extraRequired || []).some((x) => x !== 'skip')})),
     configurable: !!m.behaviorHints?.configurable, configurationRequired: !!m.behaviorHints?.configurationRequired};
   save(); return s.manifest;
@@ -1514,8 +1578,15 @@ async function addonList(a, c, extra) {
   const j = await J(addonBase(a) + '/catalog/' + c.type + '/' + encodeURIComponent(c.id) + (extra ? '/' + extra : '') + '.json');
   return (j.metas || []).filter((m) => m.poster || m.name).map((m) => ({...fromStremio(m, mapType(m.type || c.type), 'addon'), addon: a.id, stype: m.type || c.type})).filter(okItem);
 }
+const catKey = (a, c) => a.id + '|' + c.type + '|' + c.id;
 function addonRows(types) {
-  return addonCats(types).slice(0, 10).map(({a, c}) => ({title: (c.name || 'Catálogo') + ' · ' + (a.manifest.name || a.name), load: () => addonList(a, c)}));
+  const max = (NATIVE || document.body.classList.contains('phone')) ? (types ? 8 : 6) : 10;
+  const hid = new Set(S.hideCats || []);
+  return addonCats(types).filter(({a, c}) => !hid.has(catKey(a, c))).slice(0, max).map(({a, c}) => {
+    const load = () => addonList(a, c);
+    if (c.skip !== false) load.pager = (n) => addonList(a, c, 'skip=' + n);   // si el servidor no pagina, se detecta por repetidos
+    return {title: (c.name || 'Catálogo') + ' · ' + (a.manifest.name || a.name), load};
+  });
 }
 async function refreshAddons() {
   const todo = S.servers.filter((s) => s.kind === 'addon' && !s.manifest?.catalogs);
@@ -2698,6 +2769,21 @@ function buildSettings() {
   const bPf = el('div', 'box'); bPf.append(el('h2', 'disp', 'Perfiles'), el('p', 'note', 'Perfil actual: ' + curProf().name + (isKids() ? ' (Niños)' : '') + '. Cada perfil tiene su propio historial, Mi lista y recomendaciones.'));
   const pfb = el('div', 'btns'); pfb.append(btn('btn pri', 'Cambiar o agregar perfil', () => pickProfile(false))); bPf.append(pfb); w.append(bPf);
   const bSl = el('div', 'box'); bSl.append(el('h2', 'disp', 'Temporizador para dormir'), sleepChips(() => buildSettings()), el('p', 'note', 'Al terminar el tiempo pregunta si sigues viendo; si nadie contesta, se apaga. También está en el menú del reproductor.')); w.append(bSl);
+  const allCats = addonCats(null);
+  if (allCats.length) {
+    const bCt = el('div', 'box'); const hid = new Set(S.hideCats || []);
+    bCt.append(el('h2', 'disp', 'Catálogos de tus servidores'), el('p', 'note', 'Apaga los que no te interesan para que la app cargue más rápido. Encendidos: ' + allCats.filter(({a, c}) => !hid.has(catKey(a, c))).length + ' de ' + allCats.length + '.'));
+    const byA = new Map(); allCats.forEach((x) => { if (!byA.has(x.a)) byA.set(x.a, []); byA.get(x.a).push(x); });
+    byA.forEach((list, a) => {
+      bCt.append(el('h3', null, a.manifest.name || a.name));
+      const ch = el('div', 'chips');
+      list.forEach(({c}) => { const k = catKey(a, c); const b = btn('chip' + (hid.has(k) ? '' : ' on'), (hid.has(k) ? '○ ' : '✓ ') + (c.name || c.id) + ' · ' + (TYPE_ES[mapType(c.type)] || c.type), () => {
+        const h2 = new Set(S.hideCats || []); h2.has(k) ? h2.delete(k) : h2.add(k); S.hideCats = [...h2]; save();
+        ['inicio', 'peliculas', 'series', 'anime'].forEach((v) => built[v] = false); buildSettings(); }); ch.append(b); });
+      bCt.append(ch);
+    });
+    w.append(bCt);
+  }
   const bLq = el('div', 'box'); bLq.append(el('h2', 'disp', 'Idioma y calidad de películas y series'),
     el('p', 'note', 'La app elige sola la mejor versión con este idioma y calidad. En la ficha de cada título está “Idioma y calidad” para escoger otra.'),
     chips([['lat', '🇲🇽 Latino'], ['esp', '🇪🇸 España'], ['eng', '🇺🇸 Inglés'], ['any', 'Sin preferencia']], langPref(), (k) => { S.langPref = k; S.audioEs = k !== 'any' && k !== 'eng'; save(); toast('Guardado'); }),
