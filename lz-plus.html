@@ -250,7 +250,7 @@
   #gate .gbox{width:min(46rem,92vw);text-align:center;display:flex;flex-direction:column;gap:1.2rem;align-items:center}
   #gate .logo{width:5rem;height:5rem;font-size:2.2rem;border-radius:1.4rem}
   #gate h1{margin:0;font-size:2.8rem}
-  #gate .gcode{font-size:3rem;letter-spacing:.6rem;font-weight:800;min-height:4.4rem;min-width:22rem;padding:.6rem 1.4rem;border-radius:1rem;background:rgba(255,255,255,.07);border:2px solid rgba(255,255,255,.12)}
+  #gate .gcode{font-size:2.6rem;letter-spacing:.3rem;white-space:pre;font-weight:800;min-height:4.4rem;min-width:22rem;padding:.6rem 1.4rem;border-radius:1rem;background:rgba(255,255,255,.07);border:2px solid rgba(255,255,255,.12)}
   #gate .gpad{display:grid;grid-template-columns:repeat(3,6.4rem);gap:.7rem}
   #gate .gpad .key{height:4.6rem;font-size:1.9rem}
   #gate .gst{min-height:1.6rem;color:var(--mut)}
@@ -500,7 +500,91 @@ async function importFromUrl(u, quiet) {
   applyCfg(await r.json()); S.cfgUrl = u; S.cfgImported = true; if (u.startsWith(CODE_BASE)) S.code = decodeURIComponent(u.slice(CODE_BASE.length).replace(/\.json$/, '')); save();
   if (!quiet) toast('Configuración traída del link ✓');
 }
-// Código de configuración: un número corto que apunta a tu archivo en la carpeta "configs" de tu GitHub
+// LZC: cifrado de archivos de código (funciona igual en TVs viejas, navegador y Node)
+// Nombre del archivo = PBKDF2(código, "LZPLUS-NAME-v2"); contenido cifrado con llaves de PBKDF2(código, sal) + HMAC-SHA256.
+const LZC = (() => {
+  const N = 100000;
+  const enc = (s) => new TextEncoder().encode(s);
+  const dec = (b) => new TextDecoder().decode(b);
+  const cat = (...a) => { const o = new Uint8Array(a.reduce((n, x) => n + x.length, 0)); let p = 0; a.forEach((x) => { o.set(x, p); p += x.length; }); return o; };
+  const hex = (b) => Array.from(b, (x) => (x < 16 ? '0' : '') + x.toString(16)).join('');
+  const b64 = (b) => { let s = ''; for (let i = 0; i < b.length; i++) s += String.fromCharCode(b[i]); return btoa(s); };
+  const unb64 = (s) => { const t = atob(s), o = new Uint8Array(t.length); for (let i = 0; i < t.length; i++) o[i] = t.charCodeAt(i); return o; };
+  const rnd = (n) => { const o = new Uint8Array(n); crypto.getRandomValues(o); return o; };
+  const sub = typeof crypto !== 'undefined' && crypto.subtle ? crypto.subtle : null;
+  // ---- SHA-256 / HMAC / PBKDF2 en JavaScript puro (para navegadores sin crypto.subtle) ----
+  const K = new Uint32Array([0x428a2f98,0x71374491,0xb5c0fbcf,0xe9b5dba5,0x3956c25b,0x59f111f1,0x923f82a4,0xab1c5ed5,0xd807aa98,0x12835b01,0x243185be,0x550c7dc3,0x72be5d74,0x80deb1fe,0x9bdc06a7,0xc19bf174,0xe49b69c1,0xefbe4786,0x0fc19dc6,0x240ca1cc,0x2de92c6f,0x4a7484aa,0x5cb0a9dc,0x76f988da,0x983e5152,0xa831c66d,0xb00327c8,0xbf597fc7,0xc6e00bf3,0xd5a79147,0x06ca6351,0x14292967,0x27b70a85,0x2e1b2138,0x4d2c6dfc,0x53380d13,0x650a7354,0x766a0abb,0x81c2c92e,0x92722c85,0xa2bfe8a1,0xa81a664b,0xc24b8b70,0xc76c51a3,0xd192e819,0xd6990624,0xf40e3585,0x106aa070,0x19a4c116,0x1e376c08,0x2748774c,0x34b0bcb5,0x391c0cb3,0x4ed8aa4a,0x5b9cca4f,0x682e6ff3,0x748f82ee,0x78a5636f,0x84c87814,0x8cc70208,0x90befffa,0xa4506ceb,0xbef9a3f7,0xc67178f2]);
+  function sha256(m) {
+    const l = m.length, nb = ((l + 9 + 63) >> 6) << 6, p = new Uint8Array(nb); p.set(m); p[l] = 0x80;
+    const bits = l * 8; p[nb - 4] = bits >>> 24; p[nb - 3] = bits >>> 16; p[nb - 2] = bits >>> 8; p[nb - 1] = bits; p[nb - 5] = Math.floor(bits / 4294967296);
+    const H = new Uint32Array([0x6a09e667,0xbb67ae85,0x3c6ef372,0xa54ff53a,0x510e527f,0x9b05688c,0x1f83d9ab,0x5be0cd19]), W = new Uint32Array(64);
+    for (let o = 0; o < nb; o += 64) {
+      for (let i = 0; i < 16; i++) W[i] = (p[o + i * 4] << 24) | (p[o + i * 4 + 1] << 16) | (p[o + i * 4 + 2] << 8) | p[o + i * 4 + 3];
+      for (let i = 16; i < 64; i++) { const a = W[i - 15], b = W[i - 2]; W[i] = (((a >>> 7) | (a << 25)) ^ ((a >>> 18) | (a << 14)) ^ (a >>> 3)) + W[i - 16] + (((b >>> 17) | (b << 15)) ^ ((b >>> 19) | (b << 13)) ^ (b >>> 10)) + W[i - 7]; }
+      let a = H[0], b = H[1], c = H[2], d = H[3], e = H[4], f = H[5], g = H[6], h = H[7];
+      for (let i = 0; i < 64; i++) {
+        const t1 = (h + (((e >>> 6) | (e << 26)) ^ ((e >>> 11) | (e << 21)) ^ ((e >>> 25) | (e << 7))) + ((e & f) ^ (~e & g)) + K[i] + W[i]) | 0;
+        const t2 = ((((a >>> 2) | (a << 30)) ^ ((a >>> 13) | (a << 19)) ^ ((a >>> 22) | (a << 10))) + ((a & b) ^ (a & c) ^ (b & c))) | 0;
+        h = g; g = f; f = e; e = (d + t1) | 0; d = c; c = b; b = a; a = (t1 + t2) | 0;
+      }
+      H[0] += a; H[1] += b; H[2] += c; H[3] += d; H[4] += e; H[5] += f; H[6] += g; H[7] += h;
+    }
+    const out = new Uint8Array(32); for (let i = 0; i < 8; i++) { out[i * 4] = H[i] >>> 24; out[i * 4 + 1] = H[i] >>> 16; out[i * 4 + 2] = H[i] >>> 8; out[i * 4 + 3] = H[i]; }
+    return out;
+  }
+  function hmacJS(key, msg) {
+    if (key.length > 64) key = sha256(key);
+    const k = new Uint8Array(64); k.set(key);
+    const ip = k.map((x) => x ^ 0x36), op = k.map((x) => x ^ 0x5c);
+    return sha256(cat(op, sha256(cat(ip, msg))));
+  }
+  function pbkdf2JS(pass, salt, len) {
+    const out = new Uint8Array(len);
+    for (let blk = 1, pos = 0; pos < len; blk++) {
+      let u = hmacJS(pass, cat(salt, new Uint8Array([blk >>> 24, blk >>> 16, blk >>> 8, blk]))); const t = u.slice();
+      for (let i = 1; i < N; i++) { u = hmacJS(pass, u); for (let j = 0; j < 32; j++) t[j] ^= u[j]; }
+      out.set(t.slice(0, Math.min(32, len - pos)), pos); pos += 32;
+    }
+    return out;
+  }
+  async function pbkdf2(pass, salt, len) {
+    if (sub) { try { const k = await sub.importKey('raw', enc(pass), 'PBKDF2', false, ['deriveBits']); return new Uint8Array(await sub.deriveBits({name: 'PBKDF2', hash: 'SHA-256', salt, iterations: N}, k, len * 8)); } catch (e) {} }
+    return pbkdf2JS(enc(pass), salt, len);
+  }
+  async function hmacKey(key) {
+    if (sub) { try { const k = await sub.importKey('raw', key, {name: 'HMAC', hash: 'SHA-256'}, false, ['sign']); return async (m) => new Uint8Array(await sub.sign('HMAC', k, m)); } catch (e) {} }
+    return async (m) => hmacJS(key, m);
+  }
+  async function keys(code, salt) {
+    const master = await pbkdf2(code, salt, 32), h = await hmacKey(master);
+    return {e: await hmacKey(await h(enc('enc'))), m: await hmacKey(await h(enc('mac')))};
+  }
+  async function xor(ek, iv, data) {
+    const out = new Uint8Array(data.length);
+    for (let i = 0, n = 0; i < data.length; i += 32, n++) {
+      const ks = await ek(cat(iv, new Uint8Array([n >>> 24, n >>> 16, n >>> 8, n])));
+      for (let j = 0; j < 32 && i + j < data.length; j++) out[i + j] = data[i + j] ^ ks[j];
+    }
+    return out;
+  }
+  const clean = (code) => String(code).replace(/\D/g, '');
+  return {
+    clean,
+    name: async (code) => hex(await pbkdf2(clean(code), enc('LZPLUS-NAME-v2'), 16)),
+    encrypt: async (code, obj) => {
+      const salt = rnd(16), iv = rnd(16), k = await keys(clean(code), salt);
+      const d = await xor(k.e, iv, enc(JSON.stringify(obj))), t = await k.m(cat(iv, d));
+      return {v: 2, s: b64(salt), i: b64(iv), d: b64(d), t: b64(t)};
+    },
+    decrypt: async (code, f) => {
+      const salt = unb64(f.s), iv = unb64(f.i), d = unb64(f.d), k = await keys(clean(code), salt);
+      if (b64(await k.m(cat(iv, d))) !== f.t) throw new Error('código incorrecto');
+      return JSON.parse(dec(await xor(k.e, iv, d)));
+    },
+    _sha256: (s) => hex(sha256(enc(s))),
+  };
+})();
+// Código de configuración: 12 números. Tu archivo en la carpeta "configs" va cifrado y con nombre secreto
 const CODE_BASE = 'https://raw.githubusercontent.com/juandppuente2003-netizen/lz-plus/main/configs/';
 const isCode = (v) => /^[A-Za-z0-9_-]{3,20}$/.test(v.trim()) && !/\./.test(v);
 const codeUrl = (c) => CODE_BASE + c.trim().toUpperCase() + '.json';
@@ -778,7 +862,7 @@ function go(v, focus = false) {
 document.querySelectorAll('.nav').forEach((n) => { n.onclick = () => go(n.dataset.view, true); });
 document.querySelectorAll('[data-go]').forEach((n) => { n.onclick = () => go(n.dataset.go, true); });
 $('tbHist').onclick = () => { go('inicio', true); };
-$('tbCode').onclick = () => welcome();
+$('tbCode').onclick = () => { if (isKids()) return; showGate('', true); };
 $('tbFav').onclick = $('tvFav').onclick = () => { if (view !== 'vivo') go('vivo'); liveGroup = '★'; if (liveAll.length) { renderChannels(); focusEl($('clist').querySelector('.chrow')); } toast(S.favs.length ? 'Tus canales favoritos' : 'Aún no tienes favoritos: en un canal, entra a Categorías → ★'); };
 $('tvCats').onclick = () => openCats();
 $('slot').onclick = (e) => { if (!isFull() && curCh) goFull(); };
@@ -2358,11 +2442,8 @@ function buildSettings() {
   if (S.pin && !unlocked) return lockScreen(v, 'Ajustes bloqueados');
   const w = el('div', 'wrap'); v.append(w);
   if (NATIVE || IS_EXE) { const bU = el('div', 'box'); bU.append(el('h2', 'disp', 'Actualización'), el('p', 'note', 'Revisa si hay una versión nueva de LZ-PLUS y la instala sin perder tus datos.')); const ub = el('div', 'btns'); ub.append(btn('btn pri', 'Buscar actualización', () => checkUpdate(true))); bU.append(ub); w.append(bU); }
-  const bC = el('div', 'box'); bC.append(el('h2', 'disp', 'Mi código'), el('p', 'note', S.cfgUrl ? 'Configuración en uso: ' + (S.cfgUrl.startsWith(CODE_BASE) ? 'código ' + S.cfgUrl.slice(CODE_BASE.length).replace('.json', '') : 'link') : 'Escribe tu código para traer tus complementos y servidores.'));
-  const cIn = el('input'); cIn.placeholder = 'Tu código, ej. 482913'; cIn.inputMode = 'numeric';
-  const cB = el('div', 'btns'); cB.append(btn('btn pri', 'Entrar con este código', async () => { if (cIn.value.trim().length < 3) return toast('Escribe tu código'); try { await importFromUrl(fixLink(cIn.value)); refreshAddons(); buildSettings(); } catch { toast('No encontré ese código. Revisa los números.'); } }));
-  cB.append(btn('btn', 'Usar este número como mi código', () => { const c = cIn.value.trim(); if (!/^[A-Za-z0-9_-]{3,20}$/.test(c)) return toast('Escribe tu número primero'); S.myCode = c.toUpperCase(); save(); toast('Listo: “Crear mi código” usará el ' + S.myCode); }));
-  bC.append(cIn, cB); w.append(bC);
+  const bC = el('div', 'box'); bC.append(el('h2', 'disp', 'Mi código'), el('p', 'note', S.code ? 'Código en uso: ' + S.code.replace(/(\d{4})(\d{4})(\d{4})/, '$1 $2 $3') + ' (cifrado ✓).' : 'Sin código.'));
+  const cB = el('div', 'btns'); cB.append(btn('btn', 'Cambiar de código', () => showGate('', true))); bC.append(cB); w.append(bC);
   const chips = (opts, cur, set) => { const c = el('div', 'chips'); opts.forEach(([k, n]) => c.append(btn('chip' + (k === cur ? ' on' : ''), n, (e) => { set(k); c.querySelectorAll('.chip').forEach((x) => x.classList.toggle('on', x === e.currentTarget)); }))); return c; };
   const resetMeta = () => { cache.clear(); ['inicio', 'peliculas', 'series', 'anime', 'buscar'].forEach((k) => built[k] = false); loadTmdbGenres(); };
   // Idioma
@@ -2456,29 +2537,27 @@ function buildSettings() {
     if (!/^https?:\/\//.test(v)) v = 'http://' + v; if (!/:\d+\/?$/.test(v)) v = v.replace(/\/+$/, '') + ':8080';
     try { const r = await withTimeout(fetch(v.replace(/\/+$/, '') + '/lz-proxy/config'), 6000); if (!r.ok) throw 0; applyCfg(await r.json()); toast('Configuración copiada ✓'); buildSettings(); }
     catch { toast('No se encontró una configuración guardada en ' + v + '. Primero guárdala desde la computadora.'); } }));
-  tb.append(btn('btn', 'Copiar como código', async () => { const code = enc(cfgData()); try { await navigator.clipboard.writeText(code); toast('Código copiado'); } catch { openPick('Tu código', [el('textarea', null, code)]); } }));
-  tb.append(btn('btn', 'Pegar código', () => { const ta = el('textarea'); ta.style.cssText = 'width:100%;min-height:8rem;background:var(--card);color:var(--tx);border-radius:.8rem;border:2px solid var(--line);padding:1rem;font:inherit';
-    openPick('Pega el código', [ta, btn('btn pri', 'Importar', () => { try { applyCfg(dec(ta.value.trim())); closePick(); toast('Configuración importada ✓'); buildSettings(); } catch { toast('Ese código no es válido'); } })]); }));
   bT.append(ipIn, tb); w.append(bT);
-  // Desde un link: cualquier TV con la app trae tu configuración, sin tu computadora
-  const bL = el('div', 'box'); bL.append(el('h2', 'disp', 'Mi configuración en un link'),
-    el('p', 'note', '1) En la computadora descarga tu archivo de configuración. 2) Súbelo a un lugar que dé un link directo (por ejemplo un archivo en tu GitHub o tu sitio). 3) En cada TV pega ese link aquí. Si cambias el archivo, las TVs se actualizan solas al abrir.'));
+  // Código seguro: tu configuración cifrada en un archivo con nombre secreto
+  const bL = el('div', 'box'); bL.append(el('h2', 'disp', 'Crear mi código seguro'),
+    el('p', 'note', 'Guarda tus servidores y complementos en un archivo cifrado. En GitHub nadie puede leerlo ni saber de quién es: solo se abre con tu código de 12 números.'));
   const lb2 = el('div', 'btns');
-  lb2.append(btn('btn', 'Descargar mi archivo de configuración', () => { const a = el('a'); a.href = URL.createObjectURL(new Blob([JSON.stringify(cfgData(), null, 1)], {type: 'application/json'})); a.download = 'lz-config.json'; document.body.append(a); a.click(); a.remove(); toast('Se descargó lz-config.json'); }));
-  lb2.append(btn('btn pri', 'Crear mi código', () => {
-    const inUse = S.cfgUrl && S.cfgUrl.startsWith(CODE_BASE) ? S.cfgUrl.slice(CODE_BASE.length).replace('.json', '') : '';
-    const code = S.myCode || inUse || String(Math.floor(100000 + Math.random() * 900000)); S.myCode = code; save();
-    const a = el('a'); a.href = URL.createObjectURL(new Blob([JSON.stringify(cfgData(), null, 1)], {type: 'application/json'})); a.download = code + '.json'; document.body.append(a); a.click(); a.remove();
-    openPick('Tu código: ' + code, [el('p', 'note', 'Se descargó el archivo ' + code + '.json. Súbelo a tu GitHub así:'),
+  const makeCode = async (fresh) => {
+    let code = !fresh && /^\d{12}$/.test(S.myCode || '') ? S.myCode : !fresh && /^\d{12}$/.test(S.code || '') ? S.code : '';
+    if (!code) { const r = new Uint32Array(3); crypto.getRandomValues(r); code = Array.from(r, (x) => String(x % 10000).padStart(4, '0')).join(''); }
+    toast('Cifrando tu configuración…');
+    const f = await LZC.encrypt(code, cfgData()), name = await LZC.name(code);
+    if (!fresh) { S.myCode = code; save(); }
+    const a = el('a'); a.href = URL.createObjectURL(new Blob([JSON.stringify(f)], {type: 'application/json'})); a.download = name + '.json'; document.body.append(a); a.click(); a.remove();
+    const pretty = code.replace(/(\d{4})(\d{4})(\d{4})/, '$1 $2 $3');
+    openPick('Tu código: ' + pretty, [el('p', 'note', 'Se descargó el archivo ' + name + '.json (cifrado). Súbelo así:'),
       el('p', 'note', '1. Abre github.com/juandppuente2003-netizen/lz-plus/upload/main/configs'),
-      el('p', 'note', '2. Arrastra ahí el archivo ' + code + '.json y dale al botón verde “Commit changes”.'),
-      el('p', 'note', '3. En cada TV, en la bienvenida (o en Ajustes) escribe el código ' + code + '. Si cambias algo, vuelve a crear y subir el archivo con el mismo código.'),
-      el('p', 'note', 'Ojo: quien tenga el código puede ver tus complementos (incluida tu cuenta de Torrentio).')]);
-  }));
-  const lin = el('input'); lin.placeholder = 'Tu código o el link de tu lz-config.json'; lin.value = S.cfgUrl ? (S.cfgUrl.startsWith(CODE_BASE) ? S.cfgUrl.slice(CODE_BASE.length).replace('.json', '') : S.cfgUrl) : '';
-  lb2.append(btn('btn', 'Traer con código o link', async () => { const u = lin.value.trim(); if (u.length < 8) return toast('Pega el link primero'); try { await importFromUrl(fixLink(u)); buildSettings(); } catch (e) { toast('No se pudo leer ese link (' + e.message + ')'); } }));
-  if (S.cfgUrl && !S.code) lb2.append(btn('btn danger', 'Dejar de usar el link', () => { S.cfgUrl = ''; save(); buildSettings(); }));
-  bL.append(lin, lb2); w.append(bL);
+      el('p', 'note', '2. Arrastra el archivo y dale al botón verde “Commit changes”. Si ya existía, se reemplaza.'),
+      el('p', 'note', '3. En cada TV escribe el código ' + pretty + '. Si cambias algo, vuelve a crear y subir el archivo con el mismo código.'),
+      el('p', 'note', 'Guarda el código en un lugar seguro y no lo publiques. Para quitarle el acceso a alguien, borra su archivo en GitHub.')]);
+  };
+  lb2.append(btn('btn pri', 'Crear / actualizar mi código', () => makeCode(false)), btn('btn', 'Crear un código nuevo (otra persona)', () => makeCode(true)));
+  bL.append(lb2); w.append(bL);
   // Historial: borrar "Continuar viendo" y/o canales vistos (no toca favoritos, Mi lista ni servidores)
   const bH = el('div', 'box');
   const nW = Object.keys(S.watch || {}).length, nR = (S.recents || []).length;
@@ -2696,31 +2775,38 @@ window.lzUpdProgress = (p) => {
 const codeOf = (u) => (u || '').startsWith(CODE_BASE) ? decodeURIComponent(u.slice(CODE_BASE.length).replace(/\.json(\?.*)?$/, '')) : '';
 if (!S.code && codeOf(S.cfgUrl)) { S.code = codeOf(S.cfgUrl); save(); }   // aparatos que ya tenían código: no se bloquean
 let gateVal = '', gateBusy = false;
+const gateFmt = () => { const v = (gateVal + '____________').slice(0, 12); return v.slice(0, 4) + ' ' + v.slice(4, 8) + ' ' + v.slice(8); };
 function gateKey(k) {
   if (gateBusy) return;
   if (k === '\b') gateVal = gateVal.slice(0, -1); else if (gateVal.length < 12) gateVal += k;
-  const c = $('gate').querySelector('.gcode'); if (c) c.textContent = gateVal || '· · · · · ·';
+  const c = $('gate').querySelector('.gcode'); if (c) c.textContent = gateFmt();
   const st = $('gate').querySelector('.gst'); if (st) { st.textContent = ''; st.className = 'gst'; }
 }
-async function checkCode(code) {   // 'ok' | 'no' (no existe) | 'off' (sin internet)
+async function checkCode(code) {   // 'ok' | 'no' (no existe / código viejo) | 'off' (sin internet)
+  const c = LZC.clean(code);
+  if (c.length !== 12) return {res: 'no', old: true};
   try {
-    const r = await withTimeout(fetch(codeUrl(code) + '?t=' + Date.now()), 10000);
+    const name = S.codeName && S.code === c ? S.codeName : await LZC.name(c);
+    const r = await withTimeout(fetch(CODE_BASE + name + '.json?t=' + Date.now()), 15000);
     if (r.status === 404) return {res: 'no'};
     if (!r.ok) return {res: 'off'};
-    return {res: 'ok', cfg: await r.json()};
-  } catch (e) { return {res: e instanceof SyntaxError ? 'no' : 'off'}; }
+    const f = await r.json();
+    if (!f || f.v !== 2) return {res: 'no'};
+    const cfg = await LZC.decrypt(c, f);
+    return {res: 'ok', cfg, name};
+  } catch (e) { return {res: /código incorrecto|JSON|Unexpected/.test(String(e && e.message)) ? 'no' : 'off'}; }
 }
 function lockApp(why) {
-  S.code = ''; S.cfgUrl = ''; S.cfgImported = false;
+  S.code = ''; S.codeName = ''; S.cfgUrl = ''; S.cfgImported = false;
   S.servers = (S.servers || []).filter((x) => x.kind !== 'addon' && x.kind !== 'xtream' && x.kind !== 'm3u');
   save(); showGate(why);
 }
-function showGate(why) {
+function showGate(why, canCancel) {
   try { if (typeof stopPlayback === 'function') stopPlayback(); video.pause(); } catch (e) {}
   gateVal = '';
   const g = $('gate'), box = el('div', 'gbox');
   const lg = el('span', 'logo disp', 'LZ');
-  const code = el('div', 'gcode', '· · · · · ·');
+  const code = el('div', 'gcode', '____ ____ ____');
   const st = el('p', 'gst' + (why ? ' bad' : ''), why || '');
   const pad = el('div', 'gpad');
   const k = (t, v) => { const b = btn('key', t, () => gateKey(v)); return b; };
@@ -2728,21 +2814,22 @@ function showGate(why) {
   pad.append(k('⌫', '\b'), k('0', '0'));
   const ok = btn('key', 'Entrar', () => gateEnter(st)); ok.style.fontSize = '1.3rem'; ok.style.background = '#2f8f5b'; ok.style.color = '#fff';
   pad.append(ok);
-  box.append(lg, el('h1', 'disp', 'LZ-PLUS'), el('p', 'note', 'Escribe tu código de acceso para entrar.'), code, pad, st);
+  box.append(lg, el('h1', 'disp', 'LZ-PLUS'), el('p', 'note', 'Escribe tu código de acceso de 12 números.'), code, pad, st);
+  if (canCancel) box.append(btn('btn sm', 'Cancelar', () => { $('gate').hidden = true; $('gate').replaceChildren(); focusEl(document.querySelector('.nav.on')); }));
   if (NATIVE) box.append(btn('btn sm', 'Salir', () => window.LZ.exit()));
   g.replaceChildren(box); g.hidden = false;
   setTimeout(() => focusEl(pad.querySelector('.key')), 50);
 }
 async function gateEnter(st) {
   if (gateBusy) return;
-  if (gateVal.length < 3) { st.textContent = 'Escribe tu código primero.'; st.className = 'gst bad'; return; }
-  gateBusy = true; st.textContent = 'Revisando tu código…'; st.className = 'gst';
+  if (gateVal.length !== 12) { st.textContent = 'El código tiene 12 números.'; st.className = 'gst bad'; return; }
+  gateBusy = true; st.textContent = 'Revisando tu código… (puede tardar unos segundos)'; st.className = 'gst';
   const r = await checkCode(gateVal);
   gateBusy = false;
-  if (r.res === 'no') { st.textContent = 'Ese código no existe. Revisa los números.'; st.className = 'gst bad'; return; }
+  if (r.res === 'no') { st.textContent = 'Ese código no existe. Revisa los números.'; st.className = 'gst bad'; gateVal = ''; $('gate').querySelector('.gcode').textContent = gateFmt(); return; }
   if (r.res === 'off') { st.textContent = 'Sin internet. Revisa la conexión e intenta de nuevo.'; st.className = 'gst bad'; return; }
   try { applyCfg(r.cfg); } catch (e) { st.textContent = 'Ese código tiene un archivo dañado.'; st.className = 'gst bad'; return; }
-  S.code = gateVal.toUpperCase(); S.cfgUrl = codeUrl(S.code); S.cfgImported = true; S.welcomed = true; save();
+  S.code = LZC.clean(gateVal); S.codeName = r.name; S.myCode = S.code; S.cfgUrl = ''; S.cfgImported = true; S.welcomed = true; save();
   $('gate').hidden = true; $('gate').replaceChildren();
   toast('¡Bienvenido! Tus servidores ya están en la app ✓');
   if (!appStarted) startApp(); else { refreshAddons(); built.vivo = false; if (view === 'vivo') { built.vivo = true; buildLive(); } }
@@ -2756,8 +2843,8 @@ function startApp() {
     refreshAddons();   // los complementos se leen de inmediato (no esperan a nada más)
     // Cada vez que se abre: se revisa que el código siga existiendo y se traen tus cambios
     const r = await checkCode(S.code);
-    if (r.res === 'no') return lockApp('Tu código ya no es válido. Pide uno nuevo.');
-    if (r.res === 'ok') { try { applyCfg(r.cfg); } catch (e) {} S.cfgUrl = codeUrl(S.code); save(); refreshAddons(); }
+    if (r.res === 'no') return lockApp(r.old ? 'LZ-PLUS ahora usa códigos seguros de 12 números. Escribe tu código nuevo.' : 'Tu código ya no es válido. Pide uno nuevo.');
+    if (r.res === 'ok') { try { applyCfg(r.cfg); } catch (e) {} S.codeName = r.name; S.cfgUrl = ''; save(); refreshAddons(); }
     syncToPc();
     refreshAddons();
     setTimeout(checkUpdate, 4000);

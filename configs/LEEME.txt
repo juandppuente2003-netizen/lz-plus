@@ -1,1 +1,3 @@
-Aquí van tus archivos de configuración (NNNNNN.json) que crea LZ-PLUS en Ajustes → Crear mi código.
+Aquí van los archivos de código de LZ-PLUS. Van CIFRADOS: el nombre es secreto y el contenido
+solo se abre con el código de 12 números. Se crean en la app: Ajustes → Crear mi código seguro.
+Para quitarle el acceso a alguien, borra su archivo.
