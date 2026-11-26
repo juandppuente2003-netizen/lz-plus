@@ -465,12 +465,17 @@ function syncToPc() {
   clearTimeout(syncT);
   syncT = setTimeout(() => { fetch(PROXY_BASE + '/lz-proxy/config', {method: 'POST', body: JSON.stringify(cfgData())}).catch(() => {}); }, 3000);
 }
-const cfgData = () => ({v: 1, servers: S.servers, favs: S.favs, lib: S.lib, watch: S.watch, lang: S.lang, subLang: S.subLang, tmdb: S.tmdb, iptv: S.iptv, cue: S.cue, onlyAvail: S.onlyAvail});
+const cfgData = () => ({v: 1, servers: S.servers, favs: S.favs, lib: S.lib, lang: S.lang, subLang: S.subLang, tmdb: S.tmdb, iptv: S.iptv, cue: S.cue, onlyAvail: S.onlyAvail});
 const applyCfg = (c) => { if (!c || !Array.isArray(c.servers)) throw new Error('vacía');
     const have = new Set(S.servers.map((s) => s.url || s.host + s.user));
     c.servers.forEach((s) => { if (!have.has(s.url || s.host + s.user)) S.servers.push({...s, id: newId()}); });
     ['favs', 'lib'].forEach((k) => { const seen = new Set((S[k] || []).map((x) => x.url || keyOf(x))); (c[k] || []).forEach((x) => { if (!seen.has(x.url || keyOf(x))) (S[k] = S[k] || []).push(x); }); });
-    S.watch = {...(c.watch || {}), ...(S.watch || {})};
+    // Borrado de historial ordenado desde tu archivo de código ("wipe"): se hace una sola vez en cada aparato
+    if (c.wipe && c.wipe !== S.wipeDone) {
+      S.watch = {}; S.recents = []; S.lastCh = ''; S.gstat = {};
+      Object.values(S.pdata || {}).forEach((d) => { d.watch = {}; d.recents = []; d.lastCh = ''; d.gstat = {}; });
+      S.wipeDone = c.wipe; built.inicio = false;
+    }
     ['lang', 'subLang', 'iptv', 'cue'].forEach((k) => { if (c[k]) S[k] = c[k]; }); if (c.tmdb && !S.tmdb) S.tmdb = c.tmdb; if (c.onlyAvail != null) S.onlyAvail = c.onlyAvail;
     save(); AV = {}; saveAV(); cache.clear(); Object.keys(built).forEach((k) => built[k] = false); };
 // En la TV: busca tu computadora en la red de tu casa y trae tu configuración
