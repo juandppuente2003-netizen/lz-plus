@@ -1737,7 +1737,9 @@ function streamInfo(s) {
   const q = /2160p|\b4k\b|uhd/.test(l) ? '4K' : /1080p/.test(l) ? '1080p' : /720p/.test(l) ? '720p' : /480p|360p|\bsd\b/.test(l) ? 'SD' : '';
   const gb = parseFloat((l.match(/(\d+(?:[.,]\d+)?)\s*gb/) || [])[1] || 0) || (parseFloat((l.match(/(\d+(?:[.,]\d+)?)\s*mb/) || [])[1] || 0) / 1024);
   // Torrentio + debrid: [AD+] = ya está lista; [AD download] = todavía no (no reproduce hasta que el debrid la descarga)
-  const ready = /\[(ad|rd|pm|dl|tb|oc|ed|pp|pk)\+\]/.test(l) ? true : /\[(ad|rd|pm|dl|tb|oc|ed|pp|pk)[ _-]?download\]|\bdownload\]/.test(l) ? false : null;
+  // MediaFusion y Comet: ⚡ = ya está en AllDebrid · ⏳ / ⬇ = todavía no (en la tele se quitan si hay opciones listas)
+  const ready = /\[(ad|rd|pm|dl|tb|oc|ed|pp|pk)\+\]/.test(l) ? true : /\[(ad|rd|pm|dl|tb|oc|ed|pp|pk)[ _-]?download\]|\bdownload\]/.test(l) ? false
+    : /⏳|⬇/.test(d) ? false : /⚡/.test(d) ? true : null;
   const heavy = /\b(dv|dovi|dolby ?vision)\b/.test(l) ? 2 : /hevc|x265|h\.?265|10 ?bit|\bhdr/.test(l) ? 1 : 0;
   return (s._i = {lang, q, gb, ready, heavy});
 }
