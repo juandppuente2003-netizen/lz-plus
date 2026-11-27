@@ -1028,7 +1028,13 @@ function numKey(d) {
 function goBack() {
   if (!$('gate').hidden) { if (NATIVE) window.LZ.exit(); return; }
   if (!$('pick').hidden) return closePick();
-  if (isFull()) { if (!$('panel').hidden) { $('panel').hidden = true; pv.focus(); return; } return exitFull(); }
+  if (isFull()) {
+    if (!$('panel').hidden) { $('panel').hidden = true; pv.focus(); return; }
+    // Viendo una película o serie: hay que presionar Regresar dos veces (para no salirse sin querer)
+    const watching = pvMode === 'vod' && (video.currentSrc || $('yt').children.length) && ($('pvMsg').hidden || !$('pvMsg').querySelector('button'));
+    if (watching && Date.now() - (goBack.t || 0) > 3000) { goBack.t = Date.now(); hint('↩  Presiona Regresar otra vez para salir'); return; }
+    goBack.t = 0; return exitFull();
+  }
   if (!$('det').hidden) return closeDetail();
   if (!$('grid').hidden) return closeGrid();
   const a = document.activeElement;

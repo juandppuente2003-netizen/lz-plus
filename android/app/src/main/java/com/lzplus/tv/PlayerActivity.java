@@ -50,7 +50,7 @@ public class PlayerActivity extends Activity {
     private String audioLang = "es";
     private boolean failedAll = false;
     private boolean isEp = false, ended = false, introSkipped = false, slept = false, wantPick = false;
-    private long sleepAt = 0;
+    private long sleepAt = 0, lastBack = 0;
     private TextView skip;
     private final Runnable introCheck = new Runnable() {
         public void run() {
@@ -190,6 +190,18 @@ public class PlayerActivity extends Activity {
     public boolean dispatchKeyEvent(KeyEvent e) {
         // OK mientras se ve "Saltar intro": adelanta 85 segundos
         int k = e.getKeyCode();
+        // Regresar: si están los controles, primero se esconden; para salir hay que presionarlo dos veces
+        if (k == KeyEvent.KEYCODE_BACK || k == KeyEvent.KEYCODE_ESCAPE) {
+            if (e.getAction() != KeyEvent.ACTION_UP) return true;
+            if (view.isControllerFullyVisible()) { view.hideController(); return true; }
+            if (player != null && player.getCurrentPosition() > 3000 && System.currentTimeMillis() - lastBack > 3000) {
+                lastBack = System.currentTimeMillis();
+                Toast.makeText(this, "Presiona Regresar otra vez para salir", Toast.LENGTH_SHORT).show();
+                return true;
+            }
+            finish();
+            return true;
+        }
         // Botón Menú (≡) o mantener OK: volver a la lista de idioma y calidad
         boolean longOk = (k == KeyEvent.KEYCODE_DPAD_CENTER || k == KeyEvent.KEYCODE_ENTER) && e.getAction() == KeyEvent.ACTION_DOWN && e.getRepeatCount() == 8;
         if (k == KeyEvent.KEYCODE_MENU || k == KeyEvent.KEYCODE_SETTINGS || k == KeyEvent.KEYCODE_INFO || longOk) {
