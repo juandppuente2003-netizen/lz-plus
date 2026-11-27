@@ -39,7 +39,7 @@ import java.util.Map;
  */
 public class PlayerActivity extends Activity {
     private static final String VLC_UA = "VLC/3.0.20 LibVLC/3.0.20";
-    private static final long START_TIMEOUT_MS = 20000;
+    private static final long START_TIMEOUT_MS = 15000;
 
     private ExoPlayer player;
     private PlayerView view;
@@ -218,6 +218,7 @@ public class PlayerActivity extends Activity {
         r.putExtra("ended", ended);
         r.putExtra("sleep", slept);
         r.putExtra("pick", wantPick);
+        r.putExtra("idx", index);   // qué opción se estaba viendo (para reanudar directo con ella)
         r.putExtra("failed", false);
         setResult(RESULT_OK, r);
     }

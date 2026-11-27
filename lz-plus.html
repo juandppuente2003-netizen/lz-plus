@@ -1202,6 +1202,8 @@ function toggleLib(it) {
 // Clave universal del título (IMDb / Kitsu): la misma película desde cualquier servidor o fila
 const canonOf = (it, id) => { const s = String(id || it.imdb || it.id || ''); let m = s.match(/^(tt\d+)/); if (!m && it.imdb) m = String(it.imdb).match(/^(tt\d+)/); if (m) return 'imdb:' + m[1]; m = s.match(/^(kitsu:\d+)/); return m ? m[1] : null; };
 const watchOf = (it) => { const W = S.watch || {}, c = canonOf(it); return (c && W[c]) || W[keyOf(it)]; };
+const miniStream = (s) => s && s.url ? {url: s.url, name: s.name || '', title: String(s.title || '').slice(0, 300), addon: s.addon || '', behaviorHints: s.behaviorHints && s.behaviorHints.proxyHeaders ? {proxyHeaders: s.behaviorHints.proxyHeaders} : undefined} : null;
+const sameEp = (a, b) => (!a && !b) || (a && b && a.s === b.s && a.e === b.e);
 const watchKey = () => { const k = vodItem.canon || keyOf(vodItem.x); if (vodItem.canon && S.watch && keyOf(vodItem.x) !== k) delete S.watch[keyOf(vodItem.x)]; return k; };
 // Al volver del video, la ficha abierta se actualiza (muestra "Continuar")
 function refreshDetail() { if ($('det').hidden || !detData) return; const prev = detPrevFocus; openDetail(detData); detPrevFocus = prev; }
@@ -1215,7 +1217,7 @@ function saveProgress(force) {
   S.watch = S.watch || {};
   const k = watchKey();
   if (d && t / d > 0.93) { if (vodItem.ep) S.watch[k] = {it: mini(vodItem.x), ep: {s: vodItem.ep.s, e: vodItem.ep.e + 1}, t: 0, d: 0, at: Date.now(), next: true}; else delete S.watch[k]; }
-  else S.watch[k] = {it: mini(vodItem.x), ep: vodItem.ep ? {s: vodItem.ep.s, e: vodItem.ep.e} : null, t: Math.floor(t), d: Math.floor(d), at: Date.now()};
+  else { const old = S.watch[k]; S.watch[k] = {it: mini(vodItem.x), ep: vodItem.ep ? {s: vodItem.ep.s, e: vodItem.ep.e} : null, t: Math.floor(t), d: Math.floor(d), at: Date.now(), v: miniStream(vodCur) || (old && sameEp(old.ep, vodItem.ep) ? old.v : null)}; }
   const keys = Object.keys(S.watch).sort((a, b) => S.watch[b].at - S.watch[a].at); keys.slice(40).forEach((x) => delete S.watch[x]);
   save(); built.inicio = false;
 }
@@ -1261,9 +1263,10 @@ video.addEventListener('ended', () => {
   if (vodItem.ep) offerNext(vodItem.x, vodItem.ep, true);
 });
 // La app de TV avisa hasta dónde se vio en el reproductor nativo
-window.lzProgress = (pos, dur, ended) => { if (!vodItem) return; if (ended && vodItem.ep) setTimeout(() => offerNext(vodItem.x, vodItem.ep, false), 300); S.watch = S.watch || {}; const k = watchKey();
+let nativeSent = [];
+window.lzProgress = (pos, dur, ended, idx) => { if (!vodItem) return; if (ended && vodItem.ep) setTimeout(() => offerNext(vodItem.x, vodItem.ep, false), 300); S.watch = S.watch || {}; const k = watchKey();
   if (dur && pos / dur > 0.93) { if (vodItem.ep) S.watch[k] = {it: mini(vodItem.x), ep: {s: vodItem.ep.s, e: vodItem.ep.e + 1}, t: 0, d: 0, at: Date.now(), next: true}; else delete S.watch[k]; }
-  else if (pos > 20) S.watch[k] = {it: mini(vodItem.x), ep: vodItem.ep ? {s: vodItem.ep.s, e: vodItem.ep.e} : null, t: Math.floor(pos), d: Math.floor(dur), at: Date.now()};
+  else if (pos > 20) { const old = S.watch[k]; S.watch[k] = {it: mini(vodItem.x), ep: vodItem.ep ? {s: vodItem.ep.s, e: vodItem.ep.e} : null, t: Math.floor(pos), d: Math.floor(dur), at: Date.now(), v: (idx >= 0 && miniStream(nativeSent[idx])) || (old && sameEp(old.ep, vodItem.ep) ? old.v : null)}; }
   save(); built.inicio = false; if (view === 'inicio' && $('det').hidden) go('inicio'); refreshDetail(); };
 
 function mediaCard(it, spot) {
@@ -1692,7 +1695,7 @@ function streamScore(s) {
   return sc;
 }
 // Las opciones de video se guardan 6 horas: la segunda vez abre al instante
-const SC_KEY = 'lzplus.streams', SC_TTL = 6 * 3600 * 1000;
+const SC_KEY = 'lzplus.streams', SC_TTL = 12 * 3600 * 1000;
 let SC = {}; try { SC = JSON.parse(localStorage.getItem(SC_KEY) || '{}'); } catch {}
 let scT; const saveSC = () => { clearTimeout(scT); scT = setTimeout(() => { try { const max = NATIVE ? 60 : 150, k = Object.keys(SC); if (k.length > max) k.sort((a, b) => SC[a].t - SC[b].t).slice(0, k.length - max).forEach((x) => delete SC[x]); store(SC_KEY, JSON.stringify(SC)); } catch {} }, NATIVE ? 8000 : 1500); };
 function getStreams(a, type, id) {
@@ -1718,7 +1721,10 @@ async function playVod(x, ep, startAt, pick) {
   const {type, id} = vodId(x, ep);
   if (!id) return toast('Este título no tiene un código para buscar videos.');
   vodItem = {x, ep, intro: !!ep && !(startAt > 60), canon: canonOf(x, id)}; lastSaveT = 0; likeGenres(x);
-  if (NATIVE) return nativeVod(x, ep, adds, type, id, startAt, pick);
+  // Reanudar: arranca directo con la versión que estabas viendo (sin buscar en todos los servidores)
+  let fast = null;
+  if (!pick && startAt > 20) { const w = watchOf(x); if (w && w.v && w.v.url && sameEp(w.ep, ep)) { fast = {...w.v}; vodItem.fast = true; } }
+  if (NATIVE) return nativeVod(x, ep, adds, type, id, startAt, pick, fast);
   const sess = ++vodSess;
   vodOpts = []; vodAll = []; vodFailed = new Set(); vodLabel = x.title + (ep ? ' · T' + ep.s + ' E' + ep.e : '');
   if (hls) { hls.destroy(); hls = null; }
@@ -1727,6 +1733,7 @@ async function playVod(x, ep, startAt, pick) {
   video.pause(); video.removeAttribute('src'); video.querySelectorAll('track').forEach((t) => t.remove());
   goFull(); msg('Buscando ' + vodLabel + '…', null, true);
   let pending = adds.length, busy = false, playing = false; const vodT0 = Date.now();
+  if (fast && playable(fast)) { fast._p = 'unknown'; vodOpts.push(fast); msg('Reanudando…', null, true); setTimeout(() => pump(), 0); }
   const pump = () => {
     if (sess !== vodSess || busy || playing) return;
     const left = vodOpts.filter((o) => !vodFailed.has(o) && o._p !== 'bad');
@@ -1749,7 +1756,7 @@ async function playVod(x, ep, startAt, pick) {
     limit(() => probe(s._pu, /\.m3u8(\?|$)/i.test(s.url)), true).then((r) => { s._p = r; if (sess === vodSess) pump(); });
   };
   adds.forEach((a) => getStreams(a, type, id)
-    .then((list) => { if (sess !== vodSess) return; vodAll.push(...list.filter((s) => /^https?:\/\//.test(s.url || '')).map((s) => ({...s, addon: a.name}))); vodAll.sort((p, q) => streamScore(p) - streamScore(q)); const add = list.filter(playable).map((s) => ({...s, addon: a.name})); add.forEach(check); vodOpts.push(...add); vodOpts.sort((p, q) => streamScore(p) - streamScore(q));
+    .then((list) => { if (sess !== vodSess) return; if (fast) list = list.filter((s) => s.url !== fast.url); vodAll.push(...list.filter((s) => /^https?:\/\//.test(s.url || '')).map((s) => ({...s, addon: a.name}))); vodAll.sort((p, q) => streamScore(p) - streamScore(q)); const add = list.filter(playable).map((s) => ({...s, addon: a.name})); add.forEach(check); vodOpts.push(...add); vodOpts.sort((p, q) => streamScore(p) - streamScore(q));
       if (pick) { const i = vodOpts.findIndex((o) => o.url === pick.url); if (i > 0) vodOpts.unshift(vodOpts.splice(i, 1)[0]); if (i >= 0 && vodOpts[0]._p === 'pending') vodOpts[0]._p = 'unknown'; }
       else { const keep = new Set(readyFilter(S.langOnly ? langFilter(vodOpts) : vodOpts)); if (keep.size < vodOpts.length) vodOpts = vodOpts.filter((o) => keep.has(o) || o === vodCur); } })
     .catch(() => {}).finally(() => { pending--; if (sess === vodSess) pump(); }));
@@ -1762,33 +1769,36 @@ async function gatherOpts(adds, type, id, onFirst) {
   const opts = [];
   await new Promise((resolve) => {
     let pending = adds.length, firstAt = 0;
-    const timer = setTimeout(resolve, 15000);
-    adds.forEach((a) => withTimeout(getStreams(a, type, id), 15000)
+    const timer = setTimeout(resolve, 12000);
+    adds.forEach((a) => withTimeout(getStreams(a, type, id), 12000)
       .then((list) => { list.filter((s) => /^https?:\/\//.test(s.url || '')).forEach((s) => opts.push({...s, addon: a.name})); opts.sort((p, q) => streamScore(p) - streamScore(q));
-        if (opts.length && !firstAt) { firstAt = Date.now(); if (onFirst) onFirst(); setTimeout(resolve, 2500); } })
+        if (opts.length && !firstAt) { firstAt = Date.now(); if (onFirst) onFirst();
+          const good = opts.some((o) => { const i = streamInfo(o); return i.ready !== false && langBonus(i.lang) <= -4; });
+          setTimeout(resolve, good ? 900 : 2500); } })
       .catch(() => {}).finally(() => { if (--pending === 0) { clearTimeout(timer); resolve(); } }));
   });
   return opts;
 }
-async function nativeVod(x, ep, adds, type, id, startAt, pick) {
+async function nativeVod(x, ep, adds, type, id, startAt, pick, fast) {
   const label = x.title + (ep ? ' · T' + ep.s + ' E' + ep.e : '');
   const body = el('div'); body.append(el('div', 'spin'), el('p', 'note', 'Buscando video en tus complementos…'));
   openPick(label, [body]);
   const sess = ++vodSess;
-  let opts = pick && nativeLast && nativeLast.id === id ? nativeLast.opts.slice() : await gatherOpts(adds, type, id);
+  if (fast) { body.replaceChildren(el('div', 'spin'), el('p', 'note', 'Reanudando…')); }
+  let opts = fast ? [fast] : pick && nativeLast && nativeLast.id === id ? nativeLast.opts.slice() : await gatherOpts(adds, type, id);
   nativeLast = {id, type, opts: opts.slice(), x, ep};
-  if (pick) { const i = opts.findIndex((o) => o.url === pick.url); if (i > 0) opts.unshift(opts.splice(i, 1)[0]); }
+  if (fast) {}
+  else if (pick) { const i = opts.findIndex((o) => o.url === pick.url); if (i > 0) opts.unshift(opts.splice(i, 1)[0]); }
   else opts = readyFilter(S.langOnly ? langFilter(opts) : opts);
   if (sess !== vodSess || $('pick').hidden) return;
   if (!opts.length) { body.replaceChildren(el('p', 'note', 'Tus complementos no encontraron video para este título.')); return; }
   let sub = '', subLang = '';
   if (S.subLang) {
-    for (const a of subAddons()) {
-      try { const j = await withTimeout(J(addonBase(a) + '/subtitles/' + type + '/' + g(id) + '.json'), 3000);
-        const s = (j.subtitles || []).find((x) => (x.lang || '').startsWith(S.subLang.slice(0, 2))); if (s) { sub = s.url; subLang = S.subLang.slice(0, 2); break; } } catch {}
-    }
+    const res = await Promise.all(subAddons().map((a) => withTimeout(J(addonBase(a) + '/subtitles/' + type + '/' + g(id) + '.json'), fast ? 1500 : 3000).catch(() => null)));
+    for (const j of res) { const s = j && (j.subtitles || []).find((x) => (x.lang || '').startsWith(S.subLang.slice(0, 2))); if (s) { sub = s.url; subLang = S.subLang.slice(0, 2); break; } }
   }
   closePick();
+  nativeSent = opts.slice(0, 30);
   window.LZ.play(JSON.stringify({title: label, ep: !!ep, sleepAt: sleepAt || 0, sub, subLang, audioLang: S.audioEs === false ? '' : 'es', start: Math.floor(startAt || 0), opts: opts.slice(0, 30).map((s) => {
     const h = s.behaviorHints?.proxyHeaders?.request || {};
     return {url: s.url, ref: h.Referer || h.referer || '', ua: h['User-Agent'] || h['user-agent'] || ''};
@@ -1821,7 +1831,8 @@ function markDead(x) {
   const key = x.src + ':' + x.id; AV[key] = {ok: false, t: Date.now()}; saveAV();
   document.querySelectorAll('.card').forEach((c) => { if (c._key === key && c !== document.activeElement) c.remove(); });
 }
-window.lzFailed = () => { if (!vodItem) return; logErr('No abrió en la tele: ' + vodItem.x.title); if (DEBRID && DEBRID.st === 'bad') { toast('⚠️ ' + DEBRID.msg, 12000); return; }
+window.lzFailed = () => { if (!vodItem) return;
+  if (vodItem.fast) { const {x, ep} = vodItem, w = watchOf(x); if (w) w.v = null; toast('Esa versión ya no está; buscando otra…'); playVod(x, ep, w ? w.t : 0); return; } logErr('No abrió en la tele: ' + vodItem.x.title); if (DEBRID && DEBRID.st === 'bad') { toast('⚠️ ' + DEBRID.msg, 12000); return; }
   if (nativeLast && nativeLast.opts.length && nativeLast.opts.every((o) => streamInfo(o).ready === false)) { toast('⏳ Esta película todavía no está lista en tu AllDebrid. Vuelve a intentar en unos minutos.', 10000); return; } markDead(vodItem.x); toast('Este título no se pudo reproducir; ya no se mostrará.'); };
 function vodAllFailed() {
   logErr('No abrió: ' + (vodItem ? vodItem.x.title + (vodItem.ep ? ' T' + vodItem.ep.s + 'E' + vodItem.ep.e : '') : '?') + ' (' + vodOpts.length + ' opciones)');
@@ -2497,8 +2508,8 @@ function attemptsFor(s) {
     const tough = /\.(mkv|avi|ts)(\?|$)/i.test(u) || /\bmkv\b|hevc|x265|h\.?265|ac-?3|e-?ac-?3|ddp|dd\+|dts|atmos|truehd/.test(d);
     const remux = {url: ffUrl(u, h, 'copy'), mode: 'native', ff: {u, h, v: 'copy'}, probe: px(u, h)};
     const trans = {url: ffUrl(u, h, 'h264'), mode: 'native', ff: {u, h, v: 'h264'}, probe: px(u, h)};
-    if (tough && !isHls) out.unshift(remux); else out.push(remux);   // MKV/AC3: convertir primero
-    out.push(trans);
+    if (tough && !isHls) return [remux, trans, ...out.slice(0, 1).map((a) => ({...a, quick: true}))];   // MKV/AC3: directo a FFmpeg (no se pierde tiempo en lo que el navegador no abre)
+    out.push(remux, trans);
   }
   return out;
 }
@@ -2601,7 +2612,7 @@ async function playStream(s, sess) {
     if (checked.get(pu) === 'bad') continue;
     if (a.ff) msg(a.ff.v === 'h264' ? 'Convirtiendo el video para tu navegador… (puede tardar unos segundos)' : 'Preparando el video…', null, true);
     vodFF = null;
-    if (await tryPlay(a, a.ff ? 30000 : 12000)) {
+    if (await tryPlay(a, a.ff ? (a.ff.v === 'copy' ? 20000 : 28000) : a.quick ? 7000 : a.proxied ? 10000 : 8000)) {
       if (a.ff) vodFF = {...a.ff, offset: 0, dur: 0, au: 0};
       afterStart(s, sess);
       return true;
