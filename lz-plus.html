@@ -143,6 +143,8 @@
   .tvmain{display:flex;flex-direction:column;gap:1rem;min-width:0;min-height:0}
   .tvmain .slot{flex:1;min-height:0;aspect-ratio:auto;border-radius:1rem;outline:none}
   .tvmain .slot:focus{box-shadow:0 0 0 .25rem var(--accent)}
+  /* En la tele (WebView de Android) un video dentro de un cuadro redondeado que recorta sale negro: sin recorte */
+  body.lite .slot,body.lite .tvmain .slot{border-radius:0;overflow:visible}
   .tvname{position:absolute;left:1.4rem;bottom:1.1rem;font-weight:800;font-size:1.4rem;text-shadow:0 2px 8px #000;pointer-events:none;max-width:70%;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
   .tvfull{position:absolute;right:1.2rem;bottom:1rem;color:#fff;opacity:.85;pointer-events:none}
   .tvfull svg{width:1.8rem;height:1.8rem}
@@ -2109,20 +2111,38 @@ function mkChannel(x, i, src) {
   const gr = (x.group || '').split(';')[0].trim() || 'Undefined';
   return {name, logo: x.logo || null, group: GRUPOS_ES[gr] || gr, quality, tags, url: x.url, hdr: x.hdr, ref: x.ref || '', ua: x.ua || '', tid: x.tid || '', xt: x.xt || null, via: src.id !== 'iptv' && src.id !== 'regio', srcName: src.name, ad: x.ad || null};
 }
+const SPORT_ES = {FOOTBALL: 'Fútbol', SOCCER: 'Fútbol', BASKETBALL: 'Básquetbol', AMERICAN_FOOTBALL: 'Fútbol americano', COLLEGE: 'Universitario (NCAA)', BASEBALL: 'Béisbol',
+  HOCKEY: 'Hockey', MMA: 'MMA / UFC', BOXING: 'Box', FIGHT: 'Peleas', MOTORSPORT: 'Automovilismo', MOTORSPORTS: 'Automovilismo', TENNIS: 'Tenis', GOLF: 'Golf', RUGBY: 'Rugby',
+  CRICKET: 'Críquet', DARTS: 'Dardos', WRESTLING: 'Lucha libre', OTHER: 'Otros deportes', NETWORKS: 'Canales 24/7'};
+const sportEs = (g) => { const k = String(g || '').toUpperCase().replace(/[\s-]+/g, '_'); return SPORT_ES[k] || (g ? String(g).charAt(0).toUpperCase() + String(g).slice(1).toLowerCase().replace(/_/g, ' ') : 'Otros'); };
+// Logo ligero: los pósters de Nuvio son imágenes que genera su servidor (pesadas); dentro traen el logo original
+function lightLogo(m) {
+  const t = m.team1 || m.homeTeam; const tl = t && (t.logo || t.badge || t.image);
+  if (typeof tl === 'string' && /^https?:/.test(tl)) return tl;
+  try { const u = new URL(m.poster || ''); for (const v of u.searchParams.values()) if (/^https?:\/\/\S+\.(png|jpe?g|svg|webp|gif)(\?|$)/i.test(v)) return v; } catch (e) {}
+  return /image-?gen|generate|\/api\//i.test(m.poster || '') ? null : (m.poster || m.logo || null);
+}
 async function addonChannels(a) {
   const base = addonBase(a), cats = liveCats(a).filter((c) => !(adultBlocked() && (isAdultText(c.name) || isAdultText(c.id))));
   const res = await Promise.allSettled(cats.map((c) => withTimeout(fetch(base + '/catalog/' + c.type + '/' + encodeURIComponent(c.id) + '.json'), 15000).then((r) => r.ok ? r.json() : {metas: []})));
-  const out = [];
+  const byId = new Map();
   res.forEach((r, i) => {
     if (r.status !== 'fulfilled') return;
-    const c = cats[i], grp = (c.name || c.id).replace(/^\W+\s*/, '') || c.id;
-    for (const m of (r.value.metas || [])) {
+    const c = cats[i], cn = (c.name || c.id), catG = cn.replace(/^\W+\s*/, '') || c.id;
+    for (const m of (r.value.metas || []).slice(0, 150)) {
       if (!m || !m.id) continue;
       const vid = m.behaviorHints?.defaultVideoId || m.id, t = m.type || c.type;
-      out.push({name: (m.name || m.id).replace(/^[^\w¡¿]+/, '').trim() || m.name, logo: m.poster || m.logo || null, group: grp,
-        url: 'stremio:' + t + ':' + vid + '#' + c.id, ad: {a: a.id, t, id: vid, live: /live|en vivo/i.test(m.releaseInfo || '') || /^🔴/.test(m.name || '')}});
+      if (byId.has(vid)) continue;   // el mismo evento sale en varios catálogos: se muestra una sola vez
+      const ri = String(m.releaseInfo || ''), live = /^live$|en vivo/i.test(ri) || /^🔴|\bLIVE\b/.test(m.name || ''), net = /24\/7/.test(ri) || /network/i.test(c.id) || (m.genres || []).includes('NETWORKS');
+      const sport = (m.genres || [])[0];
+      const group = live ? '🔴 En vivo ahora' : net ? '📺 Canales 24/7' : /upcoming|próxim/i.test(c.id + cn) || /^(⏰|⏱)/.test(m.name || '') ? 'Próximos · ' + sportEs(sport) : sport ? sportEs(sport) : catG;
+      byId.set(vid, {name: (m.name || m.id).replace(/^[^\w¡¿]+/, '').replace(/^LIVE:\s*/i, '').trim() || m.name, logo: lightLogo(m), group,
+        url: 'stremio:' + t + ':' + vid, ad: {a: a.id, t, id: vid, live}});
     }
   });
+  const out = [...byId.values()];
+  const rank = (c) => c.group.startsWith('🔴') ? 0 : c.group.startsWith('📺') ? 2 : c.group.startsWith('Próximos') ? 3 : 1;
+  out.sort((x, y) => rank(x) - rank(y));
   if (!out.length) throw new Error(res.some((r) => r.status === 'fulfilled') ? 'Este servidor no tiene canales ahora' : NO_CONN());
   return out;
 }
@@ -2502,9 +2522,14 @@ function playAddonChannel(c, list) {
     if (curCh !== c) return;
     if (direct.length) {
       const tries = direct.flatMap((d) => liveAttempts({...c, ...d, via: true})).filter((u, i, a) => a.indexOf(u) === i); let ti = 0;
+      let wd = 0;
       const attempt = () => {
-        playUrl(tries[ti], () => { if (curCh !== c) return; if (++ti < tries.length) return attempt(); web.length ? playWebChannel(c, web[0]) : liveFail(c, 'Ninguna señal de este evento abrió aquí. Prueba en unos minutos o elige otro.', NATIVE && direct); });
-        video.onplaying = () => { if (curCh === c) msg(''); };
+        clearTimeout(wd);
+        const my = ti, next = () => { clearTimeout(wd); if (curCh !== c || ti !== my) return; if (++ti < tries.length) return attempt(); web.length ? playWebChannel(c, web[0]) : liveFail(c, 'Ninguna señal de este evento abrió aquí. Prueba en unos minutos o elige otro.', NATIVE && direct); };
+        playUrl(tries[ti], next);
+        video.onplaying = () => { clearTimeout(wd); if (curCh === c) msg(''); };
+        // si la señal se queda cargando sin imagen, se prueba la siguiente
+        wd = setTimeout(() => { if (curCh === c && ti === my && !(video.currentTime > 0 && !video.paused)) next(); }, 12000);
       };
       return attempt();
     }
