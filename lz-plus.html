@@ -610,7 +610,8 @@ function syncToPc() {
   clearTimeout(syncT);
   syncT = setTimeout(() => { fetch(PROXY_BASE + '/lz-proxy/config', {method: 'POST', body: JSON.stringify(cfgData())}).catch(() => {}); }, 3000);
 }
-const cfgData = () => ({v: 1, servers: S.servers, favs: S.favs, lib: S.lib, lang: S.lang, subLang: S.subLang, tmdb: S.tmdb, iptv: S.iptv, iptvOff: !!S.iptvOff, cue: S.cue, onlyAvail: S.onlyAvail});
+const iptvOff = () => S.iptvOff !== false;   // iptv-org viene apagado hasta que el usuario elija una lista
+const cfgData = () => ({v: 1, servers: S.servers, favs: S.favs, lib: S.lib, lang: S.lang, subLang: S.subLang, tmdb: S.tmdb, iptv: S.iptv, iptvOff: iptvOff(), cue: S.cue, onlyAvail: S.onlyAvail});
 const applyCfg = (c) => { if (!c || !Array.isArray(c.servers)) throw new Error('vacía');
     const have = new Set(S.servers.map((s) => s.url || s.host + s.user));
     c.servers.forEach((s) => { if (!have.has(s.url || s.host + s.user)) S.servers.push({...s, id: newId()}); });
@@ -1670,7 +1671,10 @@ async function readManifest(s) {
   save(); return s.manifest;
 }
 // ---------- Catálogos de complementos: aparecen como filas de carátulas ----------
-const mapType = (t) => t === 'movie' ? 'movie' : t === 'anime' ? 'anime' : 'series';
+const mapType = (t) => t === 'movie' ? 'movie' : t === 'anime' ? 'anime' : (t === 'tv' || t === 'channel') ? 'tv' : 'series';
+// Complementos con canales en vivo (p. ej. Nuvio): sus catálogos tv/channel van a TV en vivo
+const liveCats = (a) => (a.manifest?.catalogs || []).filter((c) => (c.type === 'tv' || c.type === 'channel') && !c.required && !/replay/i.test(c.id)).slice(0, 18);
+const liveAddons = () => S.servers.filter((s) => s.kind === 'addon' && liveCats(s).length && resNames(s).includes('stream'));
 function addonCats(types, forSearch) {
   const out = [];
   for (const a of S.servers) {
@@ -2075,8 +2079,9 @@ function openVodMenu() {
 // =====================================================================
 const srcCache = new Map();
 function liveSources() {
-  return [...(S.iptvOff ? [] : [{id: 'iptv', name: 'iptv-org · ' + listName(S.iptv)}]),
-    ...S.servers.filter((s) => s.kind !== 'addon').map((s) => ({id: s.id, name: s.name}))];
+  return [...(iptvOff() ? [] : [{id: 'iptv', name: 'iptv-org · ' + listName(S.iptv)}]),
+    ...S.servers.filter((s) => s.kind !== 'addon').map((s) => ({id: s.id, name: s.name})),
+    ...liveAddons().reverse().map((s) => ({id: s.id, name: (s.manifest?.name || s.name).replace(/^\W+\s*/, '') || s.name}))];
 }
 function parseM3U(text, base) {
   const out = []; let info = null;
@@ -2102,7 +2107,38 @@ function mkChannel(x, i, src) {
   name = name.replace(/\s*\((\d{3,4}p)\)/i, (_, q) => { quality = q; return ''; });
   const tags = []; name = name.replace(/\s*\[([^\]]+)\]/g, (_, t) => { tags.push(t === 'Geo-blocked' ? 'Solo en su país' : t === 'Not 24/7' ? 'No 24/7' : t); return ''; }).trim();
   const gr = (x.group || '').split(';')[0].trim() || 'Undefined';
-  return {name, logo: x.logo || null, group: GRUPOS_ES[gr] || gr, quality, tags, url: x.url, hdr: x.hdr, ref: x.ref || '', ua: x.ua || '', tid: x.tid || '', xt: x.xt || null, via: src.id !== 'iptv' && src.id !== 'regio', srcName: src.name};
+  return {name, logo: x.logo || null, group: GRUPOS_ES[gr] || gr, quality, tags, url: x.url, hdr: x.hdr, ref: x.ref || '', ua: x.ua || '', tid: x.tid || '', xt: x.xt || null, via: src.id !== 'iptv' && src.id !== 'regio', srcName: src.name, ad: x.ad || null};
+}
+async function addonChannels(a) {
+  const base = addonBase(a), cats = liveCats(a).filter((c) => !(adultBlocked() && (isAdultText(c.name) || isAdultText(c.id))));
+  const res = await Promise.allSettled(cats.map((c) => withTimeout(fetch(base + '/catalog/' + c.type + '/' + encodeURIComponent(c.id) + '.json'), 15000).then((r) => r.ok ? r.json() : {metas: []})));
+  const out = [];
+  res.forEach((r, i) => {
+    if (r.status !== 'fulfilled') return;
+    const c = cats[i], grp = (c.name || c.id).replace(/^\W+\s*/, '') || c.id;
+    for (const m of (r.value.metas || [])) {
+      if (!m || !m.id) continue;
+      const vid = m.behaviorHints?.defaultVideoId || m.id, t = m.type || c.type;
+      out.push({name: (m.name || m.id).replace(/^[^\w¡¿]+/, '').trim() || m.name, logo: m.poster || m.logo || null, group: grp,
+        url: 'stremio:' + t + ':' + vid + '#' + c.id, ad: {a: a.id, t, id: vid, live: /live|en vivo/i.test(m.releaseInfo || '') || /^🔴/.test(m.name || '')}});
+    }
+  });
+  if (!out.length) throw new Error(res.some((r) => r.status === 'fulfilled') ? 'Este servidor no tiene canales ahora' : NO_CONN());
+  return out;
+}
+// Pide al complemento los enlaces de un canal (siempre frescos: los de eventos en vivo caducan)
+async function addonChannelLinks(c) {
+  const a = S.servers.find((x) => x.id === c.ad.a); if (!a) throw new Error('El servidor de este canal ya no está');
+  const r = await withTimeout(fetch(addonBase(a) + '/stream/' + c.ad.t + '/' + g(c.ad.id) + '.json'), 20000);
+  if (!r.ok) throw new Error('HTTP ' + r.status);
+  const all = ((await r.json()).streams || []).filter((x) => !/support|donat|apoy/i.test((x.name || '') + ' ' + (x.title || '') + ' ' + (x.externalUrl || '')));
+  const direct = all.filter((x) => /^https?:\/\//.test(x.url || '')).map((x) => {
+    const h = x.behaviorHints?.proxyHeaders?.request || {};
+    const ref = h.Referer || h.referer || '', ua = h['User-Agent'] || h['user-agent'] || '';
+    return {url: x.url, ref, ua, hdr: !!(ref || ua)};
+  }).sort((p, q) => p.hdr - q.hdr);   // primero los que no piden cabeceras especiales
+  const web = all.filter((x) => /^https?:\/\//.test(x.externalUrl || '')).map((x) => x.externalUrl);
+  return {direct, web};
 }
 async function fetchText(url, via = true) {
   let r;
@@ -2155,7 +2191,7 @@ function normalizeLink(url) {
   return url;
 }
 function loadSource(id) {
-  const key = id === 'iptv' ? 'iptv:' + S.iptv : id;
+  const key = id === 'iptv' ? 'iptv:' + S.iptv : liveAddons().some((a) => a.id === id) ? id + ':' + Math.floor(Date.now() / 600000) : id;
   if (srcCache.has(key)) return srcCache.get(key);
   const p = (async () => {
     const src = liveSources().find((s) => s.id === id) || {id, name: '?'};
@@ -2164,6 +2200,7 @@ function loadSource(id) {
     else if (id === 'regio') raw = CANALES_EXTRA.map((c) => ({...c, group: 'Regional'}));
     else {
       const s = S.servers.find((x) => x.id === id); if (!s) throw new Error('Servidor no encontrado');
+      if (s.kind === 'addon') raw = await addonChannels(s); else {
       const xt = s.kind === 'xtream' ? s : xtreamFromUrl(s.url || '');
       if (xt) raw = await xtreamList(xt);
       else {
@@ -2176,6 +2213,7 @@ function loadSource(id) {
         else if (/<html|<!doctype/i.test(head)) throw new Error('El link abre una página web, no una lista de canales');
         else if (/^\s*[{[]/.test(head)) throw new Error('El link devolvió datos, no una lista. Si es Xtream, agrégalo como Xtream');
         else raw = text.split(/\r?\n/).map((l) => l.trim()).filter((l) => /^https?:\/\//i.test(l)).map((u, i) => ({name: 'Canal ' + (i + 1), url: u}));
+      }
       }
     }
     const seen = new Set(); let hidden = 0;
@@ -2208,13 +2246,13 @@ function buildLive() {
 function renderSources() {
   const box = $('srcs'); box.replaceChildren();
   liveSources().forEach((s) => box.append(btn('chip' + (s.id === S.src ? ' on' : ''), s.name, () => openSource(s.id))));
-  box.append(btn('chip', S.iptvOff ? '🌎 Activar iptv-org' : '🌎 Cambiar lista de iptv-org', pickList));
+  box.append(btn('chip', iptvOff() ? '🌎 Activar iptv-org' : '🌎 Cambiar lista de iptv-org', pickList));
 }
 function pickList() {
   const b = el('div', 'chips');
-  if (!S.iptvOff) b.append(btn('chip', '🚫 Apagar iptv-org', () => { S.iptvOff = true; save(); closePick(); srcCache.delete('iptv:' + S.iptv); stopPlayback(); curCh = null; built.inicio = false; buildLive(); toast('iptv-org apagado: ya no salen sus canales'); }));
-  LISTAS.forEach(([p, n]) => { const c = btn('chip' + (!S.iptvOff && p === S.iptv ? ' on' : ''), n, () => { S.iptvOff = false; S.iptv = p; S.src = 'iptv'; save(); closePick(); renderSources(); openSource('iptv'); built.inicio = false; }); if (p === S.iptv) c.dataset.auto = '1'; b.append(c); });
-  openPick('Listas de iptv-org', [el('p', 'note', S.iptvOff ? 'Está apagado. Elige una lista para volver a activarlo.' : 'Canales públicos y gratuitos. Elige un país, idioma o tema, o apágalo.'), b]);
+  if (!iptvOff()) b.append(btn('chip', '🚫 Apagar iptv-org', () => { S.iptvOff = true; save(); closePick(); srcCache.delete('iptv:' + S.iptv); stopPlayback(); curCh = null; built.inicio = false; buildLive(); toast('iptv-org apagado: ya no salen sus canales'); }));
+  LISTAS.forEach(([p, n]) => { const c = btn('chip' + (!iptvOff() && p === S.iptv ? ' on' : ''), n, () => { S.iptvOff = false; S.iptv = p; S.src = 'iptv'; save(); closePick(); renderSources(); openSource('iptv'); built.inicio = false; }); if (p === S.iptv) c.dataset.auto = '1'; b.append(c); });
+  openPick('Listas de iptv-org', [el('p', 'note', iptvOff() ? 'Está apagado. Elige una lista para volver a activarlo.' : 'Canales públicos y gratuitos. Elige un país, idioma o tema, o apágalo.'), b]);
 }
 async function openSource(id) {
   S.src = id; save();
@@ -2242,7 +2280,7 @@ function openCats() {
   const s1 = el('div', 'msec'); s1.append(el('h3', null, 'Lista de canales'));
   const c1 = el('div', 'chips');
   liveSources().forEach((s) => c1.append(btn('chip' + (s.id === S.src ? ' on' : ''), s.name, () => { closePick(); openSource(s.id); })));
-  c1.append(btn('chip', S.iptvOff ? '🌎 Activar iptv-org' : '🌎 Otro país o tema / apagar iptv-org', () => { closePick(); pickList(); }));
+  c1.append(btn('chip', iptvOff() ? '🌎 Activar iptv-org' : '🌎 Otro país o tema / apagar iptv-org', () => { closePick(); pickList(); }));
   s1.append(c1);
   const s2 = el('div', 'msec'); s2.append(el('h3', null, 'Categorías'));
   const c2 = el('div', 'chips');
@@ -2439,7 +2477,7 @@ function paintRows(c) {
   }
 }
 function checkChannels(list) {
-  list.forEach((c) => { if (chState(c) !== null) return paintRows(c);
+  list.forEach((c) => { if (c.ad || chState(c) !== null) return paintRows(c);
     limit(() => probe(PROXY && (c.via || c.hdr || c.url.startsWith('http:')) ? px(c.url, c) : c.url, true)).then((r) => { if (r !== 'unknown') setCh(c, r === 'ok'); }); });
 }
 // Formas de abrir un canal: directo → por el intermediario → convertido con FFmpeg
@@ -2452,9 +2490,52 @@ function liveAttempts(c) {
   if (!out.length) out.push(c.url);
   return out;
 }
+function playAddonChannel(c, list) {
+  if (pvMode === 'trailer') $('yt').replaceChildren();
+  if (hls) { hls.destroy(); hls = null; }
+  video.pause(); video.removeAttribute('src'); video.hidden = false;
+  pvMode = 'live'; curCh = c; liveList = list || [c]; video.controls = false;
+  msg('Buscando señal de ' + c.name + '…', null, true);
+  document.querySelectorAll('.chrow').forEach((r) => r.classList.toggle('on', r.dataset.url === c.url));
+  addChRecent(c);
+  addonChannelLinks(c).then(({direct, web}) => {
+    if (curCh !== c) return;
+    if (direct.length) {
+      if (NATIVE) return window.LZ.play(JSON.stringify({title: c.name, sleepAt: sleepAt || 0, opts: direct.slice(0, 8).map((d) => ({url: d.url, ref: d.ref, ua: d.ua}))}));
+      const tries = direct.flatMap((d) => liveAttempts({...c, ...d, via: true})).filter((u, i, a) => a.indexOf(u) === i); let ti = 0;
+      const attempt = () => {
+        playUrl(tries[ti], () => { if (curCh !== c) return; if (++ti < tries.length) return attempt(); web.length ? playWebChannel(c, web[0]) : liveFail(c, 'Ninguna señal de este evento abrió. Prueba en unos minutos o elige otro.'); });
+        video.onplaying = () => { if (curCh === c) msg(''); };
+      };
+      return attempt();
+    }
+    if (web.length) return playWebChannel(c, web[0]);
+    liveFail(c, c.ad.live ? 'Este evento todavía no tiene señal.' : 'Todavía no hay señal: el evento no ha empezado.');
+  }).catch((e) => { if (curCh === c) liveFail(c, 'No se pudo pedir la señal: ' + e.message); });
+  if (view === 'vivo') renderInfo();
+  showOsd();
+}
+// Canales que solo traen un reproductor web: se abre dentro de la app
+function playWebChannel(c, url) {
+  if (hls) { hls.destroy(); hls = null; }
+  video.pause(); video.removeAttribute('src'); video.hidden = true;
+  const f = el('iframe'); f.allow = 'autoplay; encrypted-media; fullscreen'; f.title = c.name;
+  f.setAttribute('referrerpolicy', 'no-referrer'); f.src = url;
+  $('yt').replaceChildren(f); msg('');
+  goFull();
+}
+function liveFail(c, text) {
+  msg(text, [btn('btn pri', '⟳ Reintentar', () => playChannel(c, liveList)), btn('btn', 'Canal siguiente ▶', () => zap(1))]);
+  if (isFull()) setTimeout(() => focusEl($('pvMsg').querySelector('button')), 50);
+}
+function addChRecent(c) {
+  S.recents = [c, ...S.recents.filter((r) => r.url !== c.url)].slice(0, 15).map((x) => ({name: x.name, logo: x.logo, url: x.url, group: x.group, quality: x.quality, tags: x.tags || [], srcName: x.srcName, via: x.via, hdr: x.hdr, ref: x.ref, ua: x.ua, ad: x.ad || null}));
+  save(); built.inicio = false;
+}
 const nativeChannel = (c) => window.LZ.play(JSON.stringify({title: c.name, sleepAt: sleepAt || 0, opts: [{url: c.url, ref: c.ref || '', ua: c.ua || ''}]}));
 function playChannel(c, list) {
   if (S.lastCh !== c.url) { S.lastCh = c.url; clearTimeout(playChannel.t); playChannel.t = setTimeout(save, 1500); }
+  if (c.ad) return playAddonChannel(c, list);
   if (NATIVE && c.hdr && !PROXY) { curCh = c; liveList = list || [c]; return nativeChannel(c); }
   pvMode = 'live'; curCh = c; liveList = list || [c];
   video.controls = false;
@@ -2467,7 +2548,7 @@ function playChannel(c, list) {
   attempt();
   function onLiveFail() { ( NATIVE ? (msg('Este canal no abrió aquí.', [btn('btn pri', 'Abrir con el reproductor de la app', () => nativeChannel(c))]), isFull() && setTimeout(() => focusEl($('pvMsg').querySelector('button')), 50)) : msg('Este canal no tiene señal ahora.', isFull() ? null : [btn('btn sm', 'Probar el siguiente ▶', () => zap(1))]) || (isFull() && hint('▲ ▼  Cambia de canal'))); }
   document.querySelectorAll('.chrow').forEach((r) => r.classList.toggle('on', r.dataset.url === c.url));
-  S.recents = [c, ...S.recents.filter((r) => r.url !== c.url)].slice(0, 15).map((x) => ({name: x.name, logo: x.logo, url: x.url, group: x.group, quality: x.quality, tags: x.tags || [], srcName: x.srcName, via: x.via, hdr: x.hdr, ref: x.ref, ua: x.ua}));
+  S.recents = [c, ...S.recents.filter((r) => r.url !== c.url)].slice(0, 15).map((x) => ({name: x.name, logo: x.logo, url: x.url, group: x.group, quality: x.quality, tags: x.tags || [], srcName: x.srcName, via: x.via, hdr: x.hdr, ref: x.ref, ua: x.ua, ad: x.ad || null}));
   save(); built.inicio = false;
   if (view === 'vivo') renderInfo();
   showOsd();
