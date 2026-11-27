@@ -2501,10 +2501,9 @@ function playAddonChannel(c, list) {
   addonChannelLinks(c).then(({direct, web}) => {
     if (curCh !== c) return;
     if (direct.length) {
-      if (NATIVE) return window.LZ.play(JSON.stringify({title: c.name, sleepAt: sleepAt || 0, opts: direct.slice(0, 8).map((d) => ({url: d.url, ref: d.ref, ua: d.ua}))}));
       const tries = direct.flatMap((d) => liveAttempts({...c, ...d, via: true})).filter((u, i, a) => a.indexOf(u) === i); let ti = 0;
       const attempt = () => {
-        playUrl(tries[ti], () => { if (curCh !== c) return; if (++ti < tries.length) return attempt(); web.length ? playWebChannel(c, web[0]) : liveFail(c, 'Ninguna señal de este evento abrió. Prueba en unos minutos o elige otro.'); });
+        playUrl(tries[ti], () => { if (curCh !== c) return; if (++ti < tries.length) return attempt(); web.length ? playWebChannel(c, web[0]) : liveFail(c, 'Ninguna señal de este evento abrió aquí. Prueba en unos minutos o elige otro.', NATIVE && direct); });
         video.onplaying = () => { if (curCh === c) msg(''); };
       };
       return attempt();
@@ -2522,10 +2521,12 @@ function playWebChannel(c, url) {
   const f = el('iframe'); f.allow = 'autoplay; encrypted-media; fullscreen'; f.title = c.name;
   f.setAttribute('referrerpolicy', 'no-referrer'); f.src = url;
   $('yt').replaceChildren(f); msg('');
-  goFull();
 }
-function liveFail(c, text) {
-  msg(text, [btn('btn pri', '⟳ Reintentar', () => playChannel(c, liveList)), btn('btn', 'Canal siguiente ▶', () => zap(1))]);
+function liveFail(c, text, direct) {
+  const b = [btn('btn pri', '⟳ Reintentar', () => playChannel(c, liveList)), btn('btn', 'Canal siguiente ▶', () => zap(1))];
+  // Último recurso en la tele: el reproductor de la app (manda las cabeceras que algunas señales piden)
+  if (direct && direct.length) b.splice(1, 0, btn('btn', 'Abrir con el reproductor de la app', () => window.LZ.play(JSON.stringify({title: c.name, sleepAt: sleepAt || 0, opts: direct.slice(0, 8).map((d) => ({url: d.url, ref: d.ref, ua: d.ua}))}))));
+  msg(text, b);
   if (isFull()) setTimeout(() => focusEl($('pvMsg').querySelector('button')), 50);
 }
 function addChRecent(c) {
