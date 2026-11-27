@@ -610,7 +610,7 @@ function syncToPc() {
   clearTimeout(syncT);
   syncT = setTimeout(() => { fetch(PROXY_BASE + '/lz-proxy/config', {method: 'POST', body: JSON.stringify(cfgData())}).catch(() => {}); }, 3000);
 }
-const cfgData = () => ({v: 1, servers: S.servers, favs: S.favs, lib: S.lib, lang: S.lang, subLang: S.subLang, tmdb: S.tmdb, iptv: S.iptv, cue: S.cue, onlyAvail: S.onlyAvail});
+const cfgData = () => ({v: 1, servers: S.servers, favs: S.favs, lib: S.lib, lang: S.lang, subLang: S.subLang, tmdb: S.tmdb, iptv: S.iptv, iptvOff: !!S.iptvOff, cue: S.cue, onlyAvail: S.onlyAvail});
 const applyCfg = (c) => { if (!c || !Array.isArray(c.servers)) throw new Error('vacía');
     const have = new Set(S.servers.map((s) => s.url || s.host + s.user));
     c.servers.forEach((s) => { if (!have.has(s.url || s.host + s.user)) S.servers.push({...s, id: newId()}); });
@@ -621,7 +621,7 @@ const applyCfg = (c) => { if (!c || !Array.isArray(c.servers)) throw new Error('
       Object.values(S.pdata || {}).forEach((d) => { d.watch = {}; d.recents = []; d.lastCh = ''; d.gstat = {}; });
       S.wipeDone = c.wipe; built.inicio = false;
     }
-    ['lang', 'subLang', 'iptv', 'cue'].forEach((k) => { if (c[k]) S[k] = c[k]; }); if (c.tmdb && !S.tmdb) S.tmdb = c.tmdb; if (c.onlyAvail != null) S.onlyAvail = c.onlyAvail;
+    ['lang', 'subLang', 'iptv', 'cue'].forEach((k) => { if (c[k]) S[k] = c[k]; }); if (c.tmdb && !S.tmdb) S.tmdb = c.tmdb; if (c.onlyAvail != null) S.onlyAvail = c.onlyAvail; if (c.iptvOff != null) S.iptvOff = c.iptvOff;
     save(); AV = {}; saveAV(); cache.clear(); Object.keys(built).forEach((k) => built[k] = false); };
 // En la TV: busca tu computadora en la red de tu casa y trae tu configuración
 async function findPc(onStep) {
@@ -1400,8 +1400,9 @@ function buildHome() {
   if (cont.length) setSpot(spot, cont[0], true);
   const defs = [...forYouRows(), ...rowsFor('inicio')];
   defs.forEach((d, i) => { const r = makeRow(d.title); rows.append(r); lazyRow(r, quickLoader('inicio|' + d.title, d.load), spot, i === 0); });
-  const lr = makeRow('En vivo ahora', 'iptv-org · ' + listName(S.iptv)); rows.append(lr);
-  loadSource('iptv').then(({channels}) => { const l = channels.slice(0, 30); l.length ? lr._strip.replaceChildren(...l.map((c, i) => chCard(c, l, i))) : lr.remove(); }).catch(() => lr.remove());
+  const lsrc = liveSources()[0];
+  const lr = makeRow('En vivo ahora', lsrc ? lsrc.name : ''); rows.append(lr);
+  if (!lsrc) lr.remove(); else loadSource(lsrc.id).then(({channels}) => { const l = channels.slice(0, 30); l.length ? lr._strip.replaceChildren(...l.map((c, i) => chCard(c, l, i))) : lr.remove(); }).catch(() => lr.remove());
   if (!useTmdb()) {
     const n = el('p', 'note', 'Consejo: agrega tu clave gratuita de TMDB en Ajustes para ver títulos, sinopsis y carátulas en español.');
     n.style.padding = '0 3rem'; rows.append(n);
@@ -1494,7 +1495,7 @@ async function runSearch() {
   }
   if (want('ch')) {
     const p = (async () => {
-      const srcs = ['iptv', S.src].filter((x, i, a) => a.indexOf(x) === i);
+      const srcs = [(liveSources()[0] || {}).id, S.src].filter((x, i, a) => x && a.indexOf(x) === i && liveSources().some((y) => y.id === x));
       const lists = await Promise.allSettled(srcs.map(loadSource));
       const ql = q.toLowerCase(); const out = [];
       lists.forEach((r) => r.status === 'fulfilled' && r.value.channels.forEach((c) => { if (c.name.toLowerCase().includes(ql)) out.push(c); }));
@@ -2074,9 +2075,8 @@ function openVodMenu() {
 // =====================================================================
 const srcCache = new Map();
 function liveSources() {
-  return [{id: 'iptv', name: 'iptv-org · ' + listName(S.iptv)},
-    ...S.servers.filter((s) => s.kind !== 'addon').map((s) => ({id: s.id, name: s.name})),
-    {id: 'regio', name: 'Flandes'}];
+  return [...(S.iptvOff ? [] : [{id: 'iptv', name: 'iptv-org · ' + listName(S.iptv)}]),
+    ...S.servers.filter((s) => s.kind !== 'addon').map((s) => ({id: s.id, name: s.name}))];
 }
 function parseM3U(text, base) {
   const out = []; let info = null;
@@ -2195,16 +2195,26 @@ function loadSource(id) {
 
 let panelGroup = null, startedFull = false;
 let liveAll = [], liveView = [], liveGroup = '', liveShown = 0, liveHidden = 0;
-function buildLive() { renderSources(); openSource(S.src); }
+function buildLive() {
+  const ls = liveSources();
+  if (!ls.length) {   // sin listas de canales
+    renderSources(); $('groups').replaceChildren(); liveAll = []; liveView = [];
+    $('clist').replaceChildren(el('p', 'note', 'No tienes listas de canales activas.'), btn('btn pri', '🌎 Activar iptv-org (gratis)', pickList), btn('btn', 'Agregar una lista en Servidores', () => go('servidores', true)));
+    return;
+  }
+  if (!ls.some((x) => x.id === S.src)) S.src = ls[0].id;
+  renderSources(); openSource(S.src);
+}
 function renderSources() {
   const box = $('srcs'); box.replaceChildren();
   liveSources().forEach((s) => box.append(btn('chip' + (s.id === S.src ? ' on' : ''), s.name, () => openSource(s.id))));
-  box.append(btn('chip', '🌎 Cambiar lista de iptv-org', pickList));
+  box.append(btn('chip', S.iptvOff ? '🌎 Activar iptv-org' : '🌎 Cambiar lista de iptv-org', pickList));
 }
 function pickList() {
   const b = el('div', 'chips');
-  LISTAS.forEach(([p, n]) => { const c = btn('chip' + (p === S.iptv ? ' on' : ''), n, () => { S.iptv = p; S.src = 'iptv'; save(); closePick(); renderSources(); openSource('iptv'); built.inicio = false; }); if (p === S.iptv) c.dataset.auto = '1'; b.append(c); });
-  openPick('Listas de iptv-org', [el('p', 'note', 'Canales públicos y gratuitos. Elige un país, idioma o tema.'), b]);
+  if (!S.iptvOff) b.append(btn('chip', '🚫 Apagar iptv-org', () => { S.iptvOff = true; save(); closePick(); srcCache.delete('iptv:' + S.iptv); stopPlayback(); curCh = null; built.inicio = false; buildLive(); toast('iptv-org apagado: ya no salen sus canales'); }));
+  LISTAS.forEach(([p, n]) => { const c = btn('chip' + (!S.iptvOff && p === S.iptv ? ' on' : ''), n, () => { S.iptvOff = false; S.iptv = p; S.src = 'iptv'; save(); closePick(); renderSources(); openSource('iptv'); built.inicio = false; }); if (p === S.iptv) c.dataset.auto = '1'; b.append(c); });
+  openPick('Listas de iptv-org', [el('p', 'note', S.iptvOff ? 'Está apagado. Elige una lista para volver a activarlo.' : 'Canales públicos y gratuitos. Elige un país, idioma o tema, o apágalo.'), b]);
 }
 async function openSource(id) {
   S.src = id; save();
@@ -2232,7 +2242,7 @@ function openCats() {
   const s1 = el('div', 'msec'); s1.append(el('h3', null, 'Lista de canales'));
   const c1 = el('div', 'chips');
   liveSources().forEach((s) => c1.append(btn('chip' + (s.id === S.src ? ' on' : ''), s.name, () => { closePick(); openSource(s.id); })));
-  c1.append(btn('chip', '🌎 Otro país o tema', () => { closePick(); pickList(); }));
+  c1.append(btn('chip', S.iptvOff ? '🌎 Activar iptv-org' : '🌎 Otro país o tema / apagar iptv-org', () => { closePick(); pickList(); }));
   s1.append(c1);
   const s2 = el('div', 'msec'); s2.append(el('h3', null, 'Categorías'));
   const c2 = el('div', 'chips');
