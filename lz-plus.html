@@ -1785,11 +1785,34 @@ function streamScore(s) {
 const SC_KEY = 'lzplus.streams', SC_TTL = 12 * 3600 * 1000;
 let SC = {}; try { SC = JSON.parse(localStorage.getItem(SC_KEY) || '{}'); } catch {}
 let scT; const saveSC = () => { clearTimeout(scT); scT = setTimeout(() => { try { const max = NATIVE ? 60 : 150, k = Object.keys(SC); if (k.length > max) k.sort((a, b) => SC[a].t - SC[b].t).slice(0, k.length - max).forEach((x) => delete SC[x]); store(SC_KEY, JSON.stringify(SC)); } catch {} }, NATIVE ? 8000 : 1500); };
+// Huella de un video para reconocerlo aunque venga de otro servidor: el código del torrent o el nombre exacto del archivo
+function streamKey(x) {
+  const h = x.infoHash || ((x.url || '').match(/(?:^|[\/=_.-])([a-f0-9]{40})(?=$|[\/?&=_.-])/i) || [])[1];
+  const fn = x.behaviorHints?.filename, ks = [];
+  if (h) ks.push('h:' + h.toLowerCase() + (x.fileIdx != null ? ':' + x.fileIdx : ''));
+  if (fn) ks.push('f:' + String(fn).toLowerCase().replace(/\.(mkv|mp4|avi|m4v|ts)$/, '').replace(/[^a-z0-9]+/g, '.'));
+  return ks.join(' ');
+}
+// Junta las opciones repetidas: se queda la mejor y anota de qué otros servidores llegó
+function dedupeOpts(opts) {
+  const seen = new Map(), out = [];
+  for (const o of opts) {
+    const ks = (o.k || '').split(' ').filter(Boolean);
+    if (!ks.length) { out.push(o); continue; }
+    const f = ks.map((k) => seen.get(k)).find(Boolean);
+    if (!f) { ks.forEach((k) => seen.set(k, o)); out.push(o); continue; }
+    ks.forEach((k) => { if (!seen.has(k)) seen.set(k, f); });
+    if (!f.also) f.also = [];
+    if (o.addon !== f.addon && !f.also.includes(o.addon)) f.also.push(o.addon);
+    if (!f.alt && o.url !== f.url) f.alt = o.url;   // otro enlace del mismo video, por si el primero falla
+  }
+  return out;
+}
 function getStreams(a, type, id) {
   const url = addonBase(a) + '/stream/' + type + '/' + g(id) + '.json', c = SC[url];
   if (c && Date.now() - c.t < SC_TTL && c.s.length) return Promise.resolve(c.s);
   return J(url, 20000).then((j) => {
-    const all = (j.streams || []).map((x) => ({url: x.url, name: (x.name || '').slice(0, 60), title: (x.title || '').slice(0, 140), description: (x.description || '').slice(0, 140), behaviorHints: x.behaviorHints?.proxyHeaders ? {proxyHeaders: x.behaviorHints.proxyHeaders} : undefined}));
+    const all = (j.streams || []).map((x) => ({url: x.url, name: (x.name || '').slice(0, 60), title: (x.title || '').slice(0, 140), description: (x.description || '').slice(0, 140), behaviorHints: x.behaviorHints?.proxyHeaders ? {proxyHeaders: x.behaviorHints.proxyHeaders} : undefined, k: streamKey(x)}));
     const s = all.filter((x) => /^https?:\/\//.test(x.url || '')).sort((p, q) => streamScore(p) - streamScore(q)).slice(0, NATIVE ? 20 : 40);
     SC[url] = {t: Date.now(), s}; saveSC(); return s;
   });
@@ -1864,7 +1887,7 @@ async function gatherOpts(adds, type, id, onFirst, onEach) {
           setTimeout(resolve, good ? 900 : 2500); } })
       .catch(() => {}).finally(() => { if (--pending === 0) { clearTimeout(timer); resolve(); } }));
   });
-  return opts;
+  return dedupeOpts(opts);
 }
 async function nativeVod(x, ep, adds, type, id, startAt, pick, fast) {
   const label = x.title + (ep ? ' · T' + ep.s + ' E' + ep.e : '');
@@ -1966,7 +1989,7 @@ function optPicker(opts, {cur, failed, onPick}) {
     shown.slice(0, 60).forEach((s) => {
       const inf = streamInfo(s), o = btn('opt' + (s === cur ? ' cur' : '')), tx = el('div');
       const top = [inf.ready === true ? '⚡ Lista' : inf.ready === false ? '⏳ No lista' : '', LANG_OPT[inf.lang], inf.q || 'Calidad ?', inf.gb ? (inf.gb >= 1 ? inf.gb.toFixed(1) + ' GB' : Math.round(inf.gb * 1024) + ' MB') : ''].filter(Boolean).join('  ·  ');
-      tx.append(el('div', null, top + (s === cur ? '  ·  viendo ahora' : '')), el('small', null, ((s.addon ? s.addon + ' · ' : '') + (s.title || s.name || '')).replace(/\n/g, ' · ').slice(0, 150)));
+      tx.append(el('div', null, top + (s === cur ? '  ·  viendo ahora' : '')), el('small', null, ((s.addon ? s.addon + (s.also ? ' + ' + s.also.join(' + ') : '') + ' · ' : '') + (s.title || s.name || '')).replace(/\n/g, ' · ').slice(0, 150)));
       o.append(tx, el('span', null, failed && failed.has(s) ? '✗' : s === cur ? '✓' : '▶'));
       o.onclick = () => onPick(s);
       list.append(o);
@@ -2037,7 +2060,7 @@ function applySub() {
 const qLabel = (s) => { const d = ((s.name || '') + ' ' + (s.title || '') + ' ' + (s.description || '')).replace(/\n/g, ' ');
   const q = (d.match(/2160p|4k|1080p|720p|576p|480p|360p/i) || [''])[0].toUpperCase().replace('4K', '2160P');
   const gb = (d.match(/(\d+(?:\.\d+)?)\s*gb/i) || [])[1];
-  return {q: q ? q.replace('P', 'p') : 'Calidad normal', extra: [/hevc|x265|h\.?265/i.test(d) && 'HEVC', /hdr|dolby vision/i.test(d) && 'HDR', gb && gb + ' GB', s.addon].filter(Boolean).join(' · ')}; };
+  return {q: q ? q.replace('P', 'p') : 'Calidad normal', extra: [/hevc|x265|h\.?265/i.test(d) && 'HEVC', /hdr|dolby vision/i.test(d) && 'HDR', gb && gb + ' GB', s.addon && s.addon + (s.also ? ' + ' + s.also.join(' + ') : '')].filter(Boolean).join(' · ')}; };
 function openVodMenu() {
   const sections = [];
   // Subtítulos
@@ -2296,6 +2319,9 @@ async function openSource(id) {
     $('clist').replaceChildren(el('p', 'note', 'No se pudo conectar: ' + m), btn('btn sm', 'Reintentar', () => openSource(id)));
   }
 }
+// Orden de categorías: primero lo que está en vivo, luego deportes, canales 24/7 y al final lo próximo; dentro, las más grandes primero
+const grpRank = (g) => /^🔴/.test(g) ? 0 : /^📺/.test(g) ? 2 : /^Próximos/.test(g) ? 3 : 1;
+const grpOrder = (a, b) => grpRank(a[0]) - grpRank(b[0]) || b[1] - a[1];
 function openCats() {
   const s1 = el('div', 'msec'); s1.append(el('h3', null, 'Lista de canales'));
   const c1 = el('div', 'chips');
@@ -2308,7 +2334,7 @@ function openCats() {
   const ch = (k, n, num) => { const b = btn('chip' + (liveGroup === k ? ' on' : ''), n + '  ' + num, () => { liveGroup = k; closePick(); renderChannels(); focusEl($('clist').querySelector('.chrow')); }); if (liveGroup === k) b.dataset.auto = '1'; return b; };
   c2.append(ch('', 'Todos', liveAll.length));
   const favN = liveAll.filter(isFav).length; if (favN) c2.append(ch('★', '★ Favoritos', favN));
-  [...count.entries()].sort((a, b) => b[1] - a[1]).forEach(([k, n]) => c2.append(ch(k, k, n)));
+  [...count.entries()].sort(grpOrder).forEach(([k, n]) => c2.append(ch(k, k, n)));
   s2.append(c2);
   const s3 = el('div', 'msec'); s3.append(el('h3', null, 'Este canal y la lista'));
   const c3 = el('div', 'chips');
@@ -2324,7 +2350,7 @@ function renderGroups() {
   const gb = (key, name, n) => { const b = el('button', 'gbtn' + (liveGroup === key ? ' on' : '')); b.type = 'button'; b.append(el('span', null, name), el('small', null, n)); b.onclick = () => { liveGroup = key; renderGroups(); renderChannels(); focusEl($('clist').querySelector('.chrow')); }; return b; };
   box.append(gb('', 'Todos', liveAll.length));
   if (favN) box.append(gb('★', '★ Favoritos', favN));
-  [...count.entries()].sort((a, b) => b[1] - a[1]).forEach(([k, n]) => box.append(gb(k, k, n)));
+  [...count.entries()].sort(grpOrder).forEach(([k, n]) => box.append(gb(k, k, n)));
   const hd = el('button', 'gbtn'); hd.type = 'button';
   hd.append(el('span', null, 'Canales sin señal'), el('small', null, S.hideDead === false ? 'Mostrar' : 'Ocultar'));
   hd.onclick = () => { S.hideDead = S.hideDead === false; save(); renderGroups(); renderChannels(); toast(S.hideDead === false ? 'Se muestran todos los canales' : 'Se ocultan los canales sin señal'); };
@@ -2668,7 +2694,7 @@ function openPanel() {
   if (useCats) {
     cats.append(gb('', 'Todos', base.length));
     if (favN) cats.append(gb('★', '★ Favoritos', favN));
-    [...count.entries()].sort((a, b) => b[1] - a[1]).forEach(([k, n]) => cats.append(gb(k, k, n)));
+    [...count.entries()].sort(grpOrder).forEach(([k, n]) => cats.append(gb(k, k, n)));
   }
   $('panel').hidden = false;
   const cur = fill(false);
