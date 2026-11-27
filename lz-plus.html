@@ -1232,7 +1232,7 @@ function warmNext(x, ep) {   // mientras ves un episodio se prepara el siguiente
   nextEpOf(x, ep).then((nx) => { if (nx) { const v = vodId(x, nx); if (v.id) warmOne(v.type, v.id); } }).catch(() => {});
 }
 // Al volver del video, la ficha abierta se actualiza (muestra "Continuar")
-function refreshDetail() { if ($('det').hidden || !detData) return; const prev = detPrevFocus; openDetail(detData); detPrevFocus = prev; }
+function refreshDetail() { if ($('det').hidden || !detData) return; openDetail.back = true; openDetail(detData); openDetail.back = false; }
 let vodItem = null, lastSaveT = 0;
 function saveProgress(force) {
   if (!vodItem || pvMode !== 'vod') return;
@@ -1510,8 +1510,11 @@ async function runSearch() {
 //  Ficha de película / serie / anime
 // =====================================================================
 let detPrevFocus = null, detData = null;
+let detStack = [], detRoot = null;
 async function openDetail(it) {
-  detPrevFocus = document.activeElement;
+  if (!$('det').hidden && detData && !openDetail.back) detStack.push(detData);   // abriste una parecida: se recuerda la anterior
+  else if ($('det').hidden) { detStack = []; detRoot = document.activeElement; }
+  detPrevFocus = detRoot;
   const d = $('det'); d.hidden = false; d.scrollTop = 0; d.replaceChildren();
   const bg = el('div', 'det-bg'); if (it.backdrop) bg.style.backgroundImage = 'url("' + it.backdrop + '")';
   const inn = el('div', 'det-in'); inn.append(el('h1', 'disp', it.title), el('p', 'note', 'Cargando…'));
@@ -1556,8 +1559,34 @@ async function openDetail(it) {
     rows.append(sr, epRow);
     loadEps(x, x.seasons[0].n, epRow);
   }
-  if (x.similar?.length) { const r = makeRow('Títulos parecidos'); r._strip.replaceChildren(...x.similar.filter(okItem).map((s) => mediaCard(s))); rows.append(r); }
+  similarRows(x, rows);
   setTimeout(() => focusEl(play), 30);
+}
+// ---------- Parecidas: abajo de la ficha, títulos del mismo tipo y géneros ----------
+const GENERIC_G = ['Drama', 'Comedia', 'Acción', 'Aventura', 'Suspenso', 'Thriller'];
+function similarRows(x, rows) {
+  const me = keyOf(x), meC = canonOf(x);
+  const notMe = (l) => l.filter((y) => keyOf(y) !== me && (!meC || canonOf(y) !== meC) && okItem(y));
+  const fill = (r, list) => { if (!list.length) { r.remove(); return; } r._strip.replaceChildren(...list.slice(0, ROW_MAX()).map((y) => mediaCard(y))); };
+  if (x.similar?.length) { const r = makeRow('Parecidas a ' + x.title); rows.append(r); fill(r, notMe(x.similar)); }
+  const anime = x.type === 'anime' || x.src === 'kitsu';
+  const t = anime ? 'anime' : (x.type === 'movie' || x.mt === 'movie' || x.stype === 'movie') ? 'movie' : 'series';
+  const inv = {}; Object.entries(GEN_ES).forEach(([en, es]) => { inv[es] = en; });
+  const gs = (x.genres || []).map((n) => ({es: GEN_ES[n] || n, en: inv[n] || n})).filter((v, i, a) => a.findIndex((w) => w.en === v.en) === i);
+  if (!gs.length) return;
+  gs.sort((a, b) => GENERIC_G.includes(a.es) - GENERIC_G.includes(b.es));   // primero los géneros más específicos (Animación antes que Drama)
+  const load = (gg) => anime ? kitsuList('kitsu-anime-popular/genre=' + g(gg.en)) : cineList(t, 'top/genre=' + g(gg.en));
+  const top = gs.slice(0, 2);
+  // "Parecidas": primero las que comparten los dos géneros principales
+  if (!x.similar?.length) {
+    const r = makeRow('Parecidas a ' + x.title); rows.append(r); r._strip.replaceChildren(...skeleton(6));
+    Promise.all(top.map((gg) => load(gg).catch(() => []))).then((ls) => {
+      const score = new Map(); ls.forEach((l, i) => l.forEach((y, pos) => { const k = keyOf(y); const o = score.get(k) || {y, sc: 0}; o.sc += (i === 0 ? 2 : 1.5) - pos / 200; score.set(k, o); }));
+      fill(r, notMe([...score.values()].sort((a, b) => b.sc - a.sc).map((o) => o.y)));
+    });
+  }
+  // Una fila más por género
+  top.forEach((gg) => { const r = makeRow('Más de ' + gg.es); rows.append(r); r._strip.replaceChildren(...skeleton(6)); load(gg).then((l) => fill(r, notMe(l))).catch(() => r.remove()); });
 }
 async function loadEps(x, n, row) {
   row._strip.replaceChildren(...skeleton(6));
@@ -1573,7 +1602,9 @@ async function loadEps(x, n, row) {
     }));
   } catch { row._strip.replaceChildren(el('p', 'empty', 'No se pudieron cargar los episodios.')); }
 }
-function closeDetail() { setTimeout(pump, 300); $('det').hidden = true; $('det').replaceChildren(); detData = null; if (detPrevFocus && visible(detPrevFocus)) focusEl(detPrevFocus); }
+function closeDetail() {
+  if (detStack.length) { const prev = detStack.pop(); openDetail.back = true; openDetail(prev); openDetail.back = false; return; }
+  setTimeout(pump, 300); $('det').hidden = true; $('det').replaceChildren(); detData = null; if (detPrevFocus && visible(detPrevFocus)) focusEl(detPrevFocus); }
 function pickTrailer(vs) {
   const yt = (vs || []).filter((v) => v.site === 'YouTube');
   const l = S.lang.slice(0, 2);
