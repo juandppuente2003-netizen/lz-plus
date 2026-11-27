@@ -50,7 +50,7 @@ public class PlayerActivity extends Activity {
     private String audioLang = "es";
     private boolean failedAll = false;
     private boolean isEp = false, ended = false, introSkipped = false, slept = false, wantPick = false;
-    private long sleepAt = 0, lastBack = 0;
+    private long sleepAt = 0, lastBack = 0, openedAt = System.currentTimeMillis(), tookMs = -1, optAt = 0;
     private TextView skip;
     private final Runnable introCheck = new Runnable() {
         public void run() {
@@ -65,7 +65,11 @@ public class PlayerActivity extends Activity {
     private final Handler handler = new Handler(Looper.getMainLooper());
     private final Runnable startWatchdog = new Runnable() {
         public void run() {
-            if (player != null && !player.isPlaying() && player.getPlaybackState() != Player.STATE_READY) next("no arrancó");
+            if (player == null || player.isPlaying() || player.getPlaybackState() == Player.STATE_READY) return;
+            long el = System.currentTimeMillis() - optAt;
+            long got = player.getTotalBufferedDuration();
+            if ((el >= (startMs > 0 ? 12000 : 7000) && got < 300) || el >= 20000) { next(got < 300 ? "no responde" : "muy lento"); return; }
+            handler.postDelayed(this, 1000);
         }
     };
 
@@ -120,7 +124,7 @@ public class PlayerActivity extends Activity {
             public void onPlayerError(PlaybackException error) { next(error.getErrorCodeName()); }
 
             @Override
-            public void onIsPlayingChanged(boolean isPlaying) { if (isPlaying) handler.removeCallbacks(startWatchdog); }
+            public void onIsPlayingChanged(boolean isPlaying) { if (isPlaying) { handler.removeCallbacks(startWatchdog); if (tookMs < 0) tookMs = System.currentTimeMillis() - openedAt; } }
 
             @Override
             public void onPlaybackStateChanged(int state) {
@@ -178,7 +182,8 @@ public class PlayerActivity extends Activity {
         player.prepare();
         player.setPlayWhenReady(true);
         if (opts.length() > 1) Toast.makeText(this, "Opción " + (index + 1) + " de " + opts.length(), Toast.LENGTH_SHORT).show();
-        handler.postDelayed(startWatchdog, START_TIMEOUT_MS);
+        optAt = System.currentTimeMillis();
+        handler.postDelayed(startWatchdog, 3000);
     }
 
     private void next(String why) {
@@ -230,7 +235,8 @@ public class PlayerActivity extends Activity {
         r.putExtra("ended", ended);
         r.putExtra("sleep", slept);
         r.putExtra("pick", wantPick);
-        r.putExtra("idx", index);   // qué opción se estaba viendo (para reanudar directo con ella)
+        r.putExtra("idx", index);
+        r.putExtra("startMs", tookMs);   // qué opción se estaba viendo (para reanudar directo con ella)
         r.putExtra("failed", false);
         setResult(RESULT_OK, r);
     }

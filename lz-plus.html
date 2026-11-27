@@ -1290,8 +1290,9 @@ video.addEventListener('ended', () => {
   if (vodItem.ep) offerNext(vodItem.x, vodItem.ep, true);
 });
 // La app de TV avisa hasta dónde se vio en el reproductor nativo
-let nativeSent = [];
-window.lzProgress = (pos, dur, ended, idx) => { if (!vodItem) return; if (ended && vodItem.ep) setTimeout(() => offerNext(vodItem.x, vodItem.ep, false), 300); S.watch = S.watch || {}; const k = watchKey();
+let nativeSent = [], nativeT = null;
+window.lzProgress = (pos, dur, ended, idx, startMs) => {
+  if (nativeT && startMs > 0) { logErr('⏱ ' + nativeT.title + ': buscar ' + (nativeT.find / 1000).toFixed(1) + ' s · arrancar en la tele ' + (startMs / 1000).toFixed(1) + ' s · opción ' + ((idx || 0) + 1) + (nativeT.fast ? ' (reanudado)' : '')); nativeT = null; } if (!vodItem) return; if (ended && vodItem.ep) setTimeout(() => offerNext(vodItem.x, vodItem.ep, false), 300); S.watch = S.watch || {}; const k = watchKey();
   if (dur && pos / dur > 0.93) { if (vodItem.ep) S.watch[k] = {it: mini(vodItem.x), ep: {s: vodItem.ep.s, e: vodItem.ep.e + 1}, t: 0, d: 0, at: Date.now(), next: true}; else delete S.watch[k]; }
   else if (pos > 20) { const old = S.watch[k]; S.watch[k] = {it: mini(vodItem.x), ep: vodItem.ep ? {s: vodItem.ep.s, e: vodItem.ep.e} : null, t: Math.floor(pos), d: Math.floor(dur), at: Date.now(), v: (idx >= 0 && miniStream(nativeSent[idx])) || (old && sameEp(old.ep, vodItem.ep) ? old.v : null)}; }
   save(); built.inicio = false; if (view === 'inicio' && $('det').hidden) go('inicio'); refreshDetail(); };
@@ -1813,13 +1814,13 @@ async function playVod(x, ep, startAt, pick) {
 }
 // En la TV: junta las opciones y las pasa al reproductor nativo (abre MKV, HEVC, AC3…)
 let nativeLast = null;
-async function gatherOpts(adds, type, id, onFirst) {
+async function gatherOpts(adds, type, id, onFirst, onEach) {
   const opts = [];
   await new Promise((resolve) => {
     let pending = adds.length, firstAt = 0;
     const timer = setTimeout(resolve, 12000);
     adds.forEach((a) => withTimeout(getStreams(a, type, id), 12000)
-      .then((list) => { list.filter((s) => /^https?:\/\//.test(s.url || '')).forEach((s) => opts.push({...s, addon: a.name})); opts.sort((p, q) => streamScore(p) - streamScore(q));
+      .then((list) => { list.filter((s) => /^https?:\/\//.test(s.url || '')).forEach((s) => opts.push({...s, addon: a.name})); opts.sort((p, q) => streamScore(p) - streamScore(q)); if (onEach) onEach(a, list.length);
         if (opts.length && !firstAt) { firstAt = Date.now(); if (onFirst) onFirst();
           const good = opts.some((o) => { const i = streamInfo(o); return i.ready !== false && langBonus(i.lang) <= -4; });
           setTimeout(resolve, good ? 900 : 2500); } })
@@ -1833,7 +1834,13 @@ async function nativeVod(x, ep, adds, type, id, startAt, pick, fast) {
   openPick(label, [body]);
   const sess = ++vodSess;
   if (fast) { body.replaceChildren(el('div', 'spin'), el('p', 'note', 'Reanudando…')); }
-  let opts = fast ? [fast] : pick && nativeLast && nativeLast.id === id ? nativeLast.opts.slice() : await gatherOpts(adds, type, id);
+  const t0 = Date.now();
+  // Los subtítulos se buscan al mismo tiempo que el video (antes se esperaban después)
+  const subP = S.subLang ? Promise.all(subAddons().map((a) => withTimeout(J(addonBase(a) + '/subtitles/' + type + '/' + g(id) + '.json'), 4000).catch(() => null))) : Promise.resolve([]);
+  const prog = el('p', 'note'); if (!fast) body.append(prog);
+  const seen = [];
+  let opts = fast ? [fast] : pick && nativeLast && nativeLast.id === id ? nativeLast.opts.slice() : await gatherOpts(adds, type, id, null, (a, n) => { seen.push(a.name + ' ✓' + (n ? ' ' + n : ' 0')); prog.textContent = seen.join('   ·   '); });
+  const tFind = Date.now() - t0;
   nativeLast = {id, type, opts: opts.slice(), x, ep};
   if (fast) {}
   else if (pick) { const i = opts.findIndex((o) => o.url === pick.url); if (i > 0) opts.unshift(opts.splice(i, 1)[0]); }
@@ -1842,9 +1849,10 @@ async function nativeVod(x, ep, adds, type, id, startAt, pick, fast) {
   if (!opts.length) { body.replaceChildren(el('p', 'note', 'Tus complementos no encontraron video para este título.')); return; }
   let sub = '', subLang = '';
   if (S.subLang) {
-    const res = await Promise.all(subAddons().map((a) => withTimeout(J(addonBase(a) + '/subtitles/' + type + '/' + g(id) + '.json'), fast ? 1500 : 3000).catch(() => null)));
+    const res = (await Promise.race([subP, sleep(fast ? 600 : 900).then(() => null)])) || [];   // si los subtítulos tardan, no se espera por ellos
     for (const j of res) { const s = j && (j.subtitles || []).find((x) => (x.lang || '').startsWith(S.subLang.slice(0, 2))); if (s) { sub = s.url; subLang = S.subLang.slice(0, 2); break; } }
   }
+  nativeT = {title: label, find: tFind, total: Date.now() - t0, fast: !!fast};
   closePick();
   nativeSent = opts.slice(0, 30);
   if (ep) setTimeout(() => warmNext(x, ep), 20000);

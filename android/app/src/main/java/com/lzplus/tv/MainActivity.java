@@ -82,9 +82,9 @@ public class MainActivity extends Activity {
         if (requestCode == 7 && data != null) {
             long pos = data.getLongExtra("pos", 0), dur = data.getLongExtra("dur", 0);
             if (data.getBooleanExtra("sleep", false)) { finish(); return; }   // temporizador para dormir: se apaga la app
-            if (data.getBooleanExtra("pick", false)) { web.evaluateJavascript("window.lzProgress && lzProgress(" + pos + "," + dur + ",false," + data.getIntExtra("idx", -1) + "); window.lzPick && lzPick(" + pos + ")", null); return; }
+            if (data.getBooleanExtra("pick", false)) { web.evaluateJavascript("window.lzProgress && lzProgress(" + pos + "," + dur + ",false," + data.getIntExtra("idx", -1) + "," + data.getLongExtra("startMs", -1) + "); window.lzPick && lzPick(" + pos + ")", null); return; }
             if (data.getBooleanExtra("failed", false)) web.evaluateJavascript("window.lzFailed && lzFailed()", null);
-            else web.evaluateJavascript("window.lzProgress && lzProgress(" + pos + "," + dur + "," + data.getBooleanExtra("ended", false) + "," + data.getIntExtra("idx", -1) + ")", null);
+            else web.evaluateJavascript("window.lzProgress && lzProgress(" + pos + "," + dur + "," + data.getBooleanExtra("ended", false) + "," + data.getIntExtra("idx", -1) + "," + data.getLongExtra("startMs", -1) + ")", null);
         }
     }
 
