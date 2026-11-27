@@ -574,7 +574,7 @@ function load() {
   }
 }
 // ---------- Guardado seguro: si la memoria se llena, se borra caché, nunca tus datos ----------
-const CACHE_KEYS = ['lzplus.streams', 'lzplus.avail', 'lzplus.chk', 'lzplus.log'];
+const CACHE_KEYS = ['lzplus.streams', 'lzplus.home', 'lzplus.avail', 'lzplus.chk', 'lzplus.log'];
 function store(key, val, essential) {
   try { localStorage.setItem(key, val); return true; } catch (e) {}
   if (!essential) { try { localStorage.removeItem(key); } catch (e) {} return false; }   // caché que no cabe: se descarta
@@ -1198,7 +1198,7 @@ function setSpot(spot, it, now) {
 // ---------------- Filas de carátulas ----------------
 // ---------- Biblioteca (como Stremio): continuar viendo y mi lista ----------
 const keyOf = (it) => it.src + ':' + it.id;
-const mini = (it) => ({src: it.src, id: it.id, mt: it.mt, type: it.type, stype: it.stype, addon: it.addon, title: it.title, poster: it.poster, backdrop: it.backdrop, year: it.year, rating: it.rating, genres: (it.genres || []).slice(0, 3), overview: (it.overview || '').slice(0, 400)});
+const mini = (it) => ({src: it.src, id: it.id, mt: it.mt, type: it.type, stype: it.stype, addon: it.addon, title: it.title, poster: it.poster, backdrop: it.backdrop, year: it.year, rating: it.rating, genres: (it.genres || []).slice(0, 3), overview: (it.overview || '').slice(0, 400), imdb: it.imdb, kitsu: it.kitsu});
 const inLib = (it) => (S.lib || []).some((x) => keyOf(x) === keyOf(it));
 function toggleLib(it) {
   if (inLib(it)) { S.lib = S.lib.filter((x) => keyOf(x) !== keyOf(it)); toast('Quitado de Mi lista'); }
@@ -1211,6 +1211,26 @@ const watchOf = (it) => { const W = S.watch || {}, c = canonOf(it); return (c &&
 const miniStream = (s) => s && s.url ? {url: s.url, name: s.name || '', title: String(s.title || '').slice(0, 300), addon: s.addon || '', behaviorHints: s.behaviorHints && s.behaviorHints.proxyHeaders ? {proxyHeaders: s.behaviorHints.proxyHeaders} : undefined} : null;
 const sameEp = (a, b) => (!a && !b) || (a && b && a.s === b.s && a.e === b.e);
 const watchKey = () => { const k = vodItem.canon || keyOf(vodItem.x); if (vodItem.canon && S.watch && keyOf(vodItem.x) !== k) delete S.watch[keyOf(vodItem.x)]; return k; };
+// ---------- Videos preparados antes de darle Reproducir ----------
+let warmBusy = false;
+async function warmOne(type, id) { if (!id) return; await Promise.all(streamAddons().map((a) => withTimeout(getStreams(a, type, id), 15000).catch(() => {}))); }
+function idFromWatch(k, w) {   // de la clave universal (imdb:tt… / kitsu:…) y el episodio
+  const ep = w.ep;
+  if (k.startsWith('imdb:')) { const im = k.slice(5); return ep ? {type: 'series', id: im + ':' + ep.s + ':' + ep.e} : {type: 'movie', id: im}; }
+  if (k.startsWith('kitsu:')) return {type: 'series', id: k + ':' + (ep ? ep.e : 1)};
+  const x = w.it || {}; return ep ? vodId(x, ep) : vodId(x, null);
+}
+async function warmContinue() {   // lo de "Continuar viendo" queda buscado en segundo plano
+  if (warmBusy || !streamAddons().length) return; warmBusy = true;
+  try {
+    const list = Object.entries(S.watch || {}).sort((a, b) => (b[1].at || 0) - (a[1].at || 0)).slice(0, NATIVE ? 4 : 6);
+    for (const [k, w] of list) { if (isFull()) await sleep(4000); const v = idFromWatch(k, w); if (v && v.id) await warmOne(v.type, v.id); await sleep(400); }
+  } finally { warmBusy = false; }
+}
+function warmNext(x, ep) {   // mientras ves un episodio se prepara el siguiente
+  if (!ep) return;
+  nextEpOf(x, ep).then((nx) => { if (nx) { const v = vodId(x, nx); if (v.id) warmOne(v.type, v.id); } }).catch(() => {});
+}
 // Al volver del video, la ficha abierta se actualiza (muestra "Continuar")
 function refreshDetail() { if ($('det').hidden || !detData) return; const prev = detPrevFocus; openDetail(detData); detPrevFocus = prev; }
 let vodItem = null, lastSaveT = 0;
@@ -1232,6 +1252,7 @@ addEventListener('pagehide', () => { if (pvMode === 'vod') saveProgress(true); }
 video.addEventListener('timeupdate', () => {
   saveProgress(false);
   const t = curTime(), on = pvMode === 'vod' && vodItem && vodItem.intro && !video.paused && t > 10 && t < 240;
+  if (pvMode === 'vod' && vodItem && vodItem.ep && !vodItem.warmed && t > 60) { vodItem.warmed = true; warmNext(vodItem.x, vodItem.ep); }
   if ($('skipIntro').hidden === on) $('skipIntro').hidden = !on;
 });
 function skipIntro() { if (!vodItem) return; vodItem.intro = false; $('skipIntro').hidden = true; const t = curTime() + 85; if (vodFF) ffReload(t); else video.currentTime = t; hint('⏭  Intro saltada'); }
@@ -1315,6 +1336,21 @@ function makeRow(title, sub) {
   r.append(h, s); r._strip = s; return r;
 }
 const rowIO = window.IntersectionObserver ? new IntersectionObserver((es) => es.forEach((e) => { if (e.isIntersecting && e.target._go) { const f = e.target._go; e.target._go = null; rowIO.unobserve(e.target); f(); } }), {rootMargin: '700px 0px'}) : null;
+const HC_KEY = 'lzplus.home';
+let HC = {}; try { HC = JSON.parse(localStorage.getItem(HC_KEY) || '{}'); } catch (e) { HC = {}; }
+let hcSaveT = null;
+function saveHC() { clearTimeout(hcSaveT); hcSaveT = setTimeout(() => { const keys = Object.keys(HC).sort((a, b) => HC[b].t - HC[a].t); keys.slice(60).forEach((k) => delete HC[k]); store(HC_KEY, JSON.stringify(HC)); }, 1500); }
+// Muestra al instante lo último que cargó esa fila y lo actualiza por detrás
+function quickLoader(key, real) {
+  const f = () => {
+    const fresh = real().then((items) => { if (items && items.length) { HC[key] = {t: Date.now(), items: items.slice(0, 40).map(mini)}; saveHC(); } return items; });
+    const c = HC[key];
+    if (c && c.items && c.items.length && Date.now() - c.t < 3 * 864e5) { f._fresh = fresh; fresh.catch(() => {}); return Promise.resolve(c.items.slice()); }
+    f._fresh = null; return fresh;
+  };
+  if (real.pager) f.pager = real.pager;
+  return f;
+}
 function lazyRow(row, loader, spot, first) {
   if (first || !rowIO) return fillRow(row, loader, spot, first);
   row._go = () => fillRow(row, loader, spot, false); rowIO.observe(row);
@@ -1322,6 +1358,12 @@ function lazyRow(row, loader, spot, first) {
 async function fillRow(row, loader, spot, firstToSpot) {
   try {
     const items = await loader();
+    if (loader._fresh) {   // se mostró lo guardado: cuando llegue lo nuevo, se cambia sin mover tu selección
+      const fr = loader._fresh; loader._fresh = null;
+      fr.then((nw) => { if (!nw || !nw.length || !row.isConnected || row.contains(document.activeElement)) return;
+        const same = nw.slice(0, 12).map(keyOf).join() === items.slice(0, 12).map(keyOf).join(); if (same) return;
+        const f2 = () => Promise.resolve(nw); if (loader.pager) f2.pager = loader.pager; fillRow(row, f2, spot, false); }).catch(() => {});
+    }
     if (!items.length) { row.remove(); return []; }
     const title = (row.querySelector('h3') || {}).firstChild ? row.querySelector('h3').firstChild.textContent : '';
     const shown = items.slice(0, ROW_MAX()), more = items.length > shown.length || loader.pager ? moreCard(title, items, loader.pager) : null;
@@ -1356,7 +1398,7 @@ function buildHome() {
   live('Canales favoritos', S.favs);
   if (cont.length) setSpot(spot, cont[0], true);
   const defs = [...forYouRows(), ...rowsFor('inicio')];
-  defs.forEach((d, i) => { const r = makeRow(d.title); rows.append(r); lazyRow(r, d.load, spot, i === 0); });
+  defs.forEach((d, i) => { const r = makeRow(d.title); rows.append(r); lazyRow(r, quickLoader('inicio|' + d.title, d.load), spot, i === 0); });
   const lr = makeRow('En vivo ahora', 'iptv-org · ' + listName(S.iptv)); rows.append(lr);
   loadSource('iptv').then(({channels}) => { const l = channels.slice(0, 30); l.length ? lr._strip.replaceChildren(...l.map((c, i) => chCard(c, l, i))) : lr.remove(); }).catch(() => lr.remove());
   if (!useTmdb()) {
@@ -1368,7 +1410,7 @@ function buildCatalog(v) {
   const s = $('v-' + v); s.replaceChildren(); s.classList.add('cat');
   const spot = makeSpot(); const rows = el('div', 'rows');
   s.append(spot, rows);
-  rowsFor(v).forEach((d, i) => { const r = makeRow(d.title); rows.append(r); lazyRow(r, d.load, spot, i === 0); });
+  rowsFor(v).forEach((d, i) => { const r = makeRow(d.title); rows.append(r); lazyRow(r, quickLoader(v + '|' + d.title, d.load), spot, i === 0); });
 }
 
 // =====================================================================
@@ -1805,6 +1847,7 @@ async function nativeVod(x, ep, adds, type, id, startAt, pick, fast) {
   }
   closePick();
   nativeSent = opts.slice(0, 30);
+  if (ep) setTimeout(() => warmNext(x, ep), 20000);
   window.LZ.play(JSON.stringify({title: label, ep: !!ep, sleepAt: sleepAt || 0, sub, subLang, audioLang: S.audioEs === false ? '' : 'es', start: Math.floor(startAt || 0), opts: opts.slice(0, 30).map((s) => {
     const h = s.behaviorHints?.proxyHeaders?.request || {};
     return {url: s.url, ref: h.Referer || h.referer || '', ua: h['User-Agent'] || h['user-agent'] || ''};
@@ -3349,6 +3392,7 @@ function startApp() {
     refreshAddons();
     setTimeout(checkUpdate, 4000);
     setTimeout(() => checkAll(false), 7000);
+    setTimeout(warmContinue, 5000);
     if (S.profiles.length > 1) setTimeout(() => { if ($('pick').hidden && $('gate').hidden) pickProfile(true); }, 1500);
   });
 }
